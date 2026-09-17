@@ -9,9 +9,7 @@ const IGNORED_DIRECTORIES = [
   "**/coverage/**",
 ];
 
-export async function discoverSourceFiles(
-  repositoryPath: string
-): Promise<string[]> {
+export async function discoverSourceFiles(repositoryPath: string): Promise<string[]> {
   return fg("**/*.{ts,tsx,js,jsx}", {
     cwd: repositoryPath,
     ignore: IGNORED_DIRECTORIES,

@@ -5,35 +5,32 @@ import { extractImports } from "../ast-parser.service";
 async function main() {
   const repositoryPath = await cloneRepository("https://github.com/facebook/react");
 
-  console.log("Repository:");
-  console.log(repositoryPath);
-
   const files = await discoverSourceFiles(repositoryPath);
 
-  console.log(`\nFound ${files.length} source files`);
+  const extensions = [".js", ".jsx", ".ts", ".tsx"];
 
-const candidateFiles = files.filter(
-  (file) =>
-    file.endsWith(".ts") ||
-    file.endsWith(".tsx") ||
-    file.endsWith(".js") ||
-    file.endsWith(".jsx")
-);
+  for (const extension of extensions) {
+    const candidateFile = files.find((file) => file.endsWith(extension) && !file.includes("fixtures"));
 
-const firstFile = candidateFiles[10];
+    if (!candidateFile) {
+      console.log(`No ${extension} file found`);
+      continue;
+    }
 
-if (!firstFile) {
-  throw new Error("No suitable source file found");
-}
-  console.log("\nAnalyzing:");
-  console.log(firstFile);
+    console.log(`\nAnalyzing ${extension}:`);
+    console.log(candidateFile);
 
-  const imports = await extractImports(repositoryPath, firstFile);
+    try {
+      const imports = await extractImports(repositoryPath, candidateFile);
 
-  console.log("\nImports:");
-  console.log(imports);
+      console.log("Imports:");
+      console.log(imports);
+    } catch (error) {
+      console.error(`Failed to parse ${candidateFile}:`, error);
+    }
+  }
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error("AST parser test failed:", error);
 });

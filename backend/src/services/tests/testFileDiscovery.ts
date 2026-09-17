@@ -2,17 +2,20 @@ import { cloneRepository } from "../repository.service";
 import { discoverSourceFiles } from "../file-discovery.service";
 
 async function main() {
-  const repositoryPath = await cloneRepository(
-    "https://github.com/facebook/react"
-  );
+  const repositoryPath = await cloneRepository("https://github.com/facebook/react");
+
+  console.log("Repository:");
+  console.log(repositoryPath);
 
   const files = await discoverSourceFiles(repositoryPath);
 
-  console.log(`Found ${files.length} source files`);
+  console.log(`\nFound ${files.length} source files`);
 
-  for (const file of files.slice(0, 10)) {
-    console.log(file);
-  }
+  console.log("\nFirst 20 files:");
+
+  console.log(files.slice(0, 20));
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error("File discovery failed:", error);
+});

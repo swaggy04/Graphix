@@ -9,4 +9,6 @@ async function main() {
   console.log(repositoryPath);
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error("Clone failed:", error);
+});
