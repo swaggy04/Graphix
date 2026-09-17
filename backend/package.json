@@ -12,7 +12,6 @@
   "type": "commonjs",
   "dependencies": {
     "@babel/parser": "^7.29.8",
-    "@swc/core": "^1.16.2",
     "express": "^5.2.1",
     "fast-glob": "^3.3.3"
   },
