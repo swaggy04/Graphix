@@ -1,6 +1,6 @@
 import { readFile } from "fs/promises";
-import { parse } from "@swc/core";
 import path from "path";
+import { parse } from "@babel/parser";
 
 export async function extractImports(repositoryPath: string, relativeFilePath: string): Promise<string[]> {
   const absoluteFilePath = path.join(repositoryPath, relativeFilePath);
@@ -11,17 +11,31 @@ export async function extractImports(repositoryPath: string, relativeFilePath: s
 
   const isTypeScript = extension === ".ts" || extension === ".tsx";
 
-  const isJSX = extension === ".js" || extension === ".jsx" || extension === ".tsx";
+  const isJSX = extension === ".jsx" || extension === ".tsx" || extension === ".js";
 
-  const ast = await parse(sourceCode, {
-    syntax: isTypeScript ? "typescript" : "ecmascript",
-    tsx: isTypeScript && isJSX,
-    jsx: !isTypeScript && isJSX,
+  const plugins: ("typescript" | "jsx" | "flow" | "flowComments")[] = [];
+
+  if (isTypeScript) {
+    plugins.push("typescript");
+  }
+
+  if (isJSX) {
+    plugins.push("jsx");
+  }
+
+  // React's repository contains Flow files.
+  if (!isTypeScript) {
+    plugins.push("flow");
+  }
+
+  const ast = parse(sourceCode, {
+    sourceType: "unambiguous",
+    plugins,
   });
 
   const imports: string[] = [];
 
-  for (const node of ast.body) {
+  for (const node of ast.program.body) {
     if (node.type === "ImportDeclaration") {
       imports.push(node.source.value);
     }
