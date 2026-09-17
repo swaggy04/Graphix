@@ -1,16 +1,20 @@
 import { readFile } from "fs/promises";
 import { parse } from "@swc/core";
+import path from "path";
 
-export async function extractImports(filePath: string): Promise<string[]> {
-  const sourceCode = await readFile(filePath, "utf-8");
+export async function extractImports(repositoryPath: string, relativeFilePath: string): Promise<string[]> {
+  const absoluteFilePath = path.join(repositoryPath, relativeFilePath);
+  const sourceCode = await readFile(absoluteFilePath, "utf-8");
+  const extension = path.extname(relativeFilePath).toLowerCase();
 
+  const isTypeScript = extension === ".ts" || extension === ".tsx";
+
+  const isJSX = extension === ".jsx" || extension === ".tsx";
   const ast = await parse(sourceCode, {
-    syntax: "typescript",
-    tsx: filePath.endsWith(".tsx"),
+    syntax: isTypeScript ? "typescript" : "ecmascript",
+    tsx: isJSX,
   });
-
   const imports: string[] = [];
-
   for (const node of ast.body) {
     if (node.type === "ImportDeclaration") {
       imports.push(node.source.value);

@@ -1,25 +1,39 @@
-import { writeFile } from "fs/promises";
-import path from "path";
+import { cloneRepository } from "../repository.service";
+import { discoverSourceFiles } from "../file-discovery.service";
 import { extractImports } from "../ast-parser.service";
 
 async function main() {
-  const filePath = path.join(process.cwd(), "test-input.ts");
+  const repositoryPath = await cloneRepository("https://github.com/facebook/react");
 
-  await writeFile(
-    filePath,
-    `
-import React from "react";
-import Button from "./Button";
-import { formatDate } from "../utils/date";
+  console.log("Repository:");
+  console.log(repositoryPath);
 
-const name = "Grapix";
-`,
-    "utf-8"
-  );
+  const files = await discoverSourceFiles(repositoryPath);
 
-  const imports = await extractImports(filePath);
+  console.log(`\nFound ${files.length} source files`);
 
+const candidateFiles = files.filter(
+  (file) =>
+    file.endsWith(".ts") ||
+    file.endsWith(".tsx") ||
+    file.endsWith(".js") ||
+    file.endsWith(".jsx")
+);
+
+const firstFile = candidateFiles[10];
+
+if (!firstFile) {
+  throw new Error("No suitable source file found");
+}
+  console.log("\nAnalyzing:");
+  console.log(firstFile);
+
+  const imports = await extractImports(repositoryPath, firstFile);
+
+  console.log("\nImports:");
   console.log(imports);
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error(error);
+});
