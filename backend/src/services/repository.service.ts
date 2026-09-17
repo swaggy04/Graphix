@@ -6,7 +6,7 @@ import path from "path";
 import { parseGitHubUrl } from "../../utils/github-url";
 
 const execFileAsync = promisify(execFile);
-export async function cloneRepositry(url: string): Promise<string> {
+export async function cloneRepository(url: string): Promise<string> {
   const { repo } = parseGitHubUrl(url);
   const tempDirectory = await mkdtemp(path.join(tmpdir(), "traceon-"));
   const repositoryPath = path.join(tempDirectory, repo);
