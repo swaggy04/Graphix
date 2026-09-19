@@ -19,7 +19,8 @@ export async function createDependencyGraph(
   for (const file of files) {
     const imports = await extractImports(repositoryPath, file);
     for (const imp of imports) {
-      const resolvedFile = resolveModule(repositoryPath, file, imp);
+      const resolvedFile = await resolveModule(repositoryPath, file, imp);
+    
       if (!resolvedFile) {
         continue;
       }
