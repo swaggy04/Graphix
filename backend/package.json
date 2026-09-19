@@ -14,7 +14,8 @@
     "@babel/parser": "^7.29.8",
     "enhanced-resolve": "^5.25.1",
     "express": "^5.2.1",
-    "fast-glob": "^3.3.3"
+    "fast-glob": "^3.3.3",
+    "graphology": "^0.26.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
