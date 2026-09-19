@@ -2,7 +2,7 @@ import { cloneRepository } from "../repository.service";
 
 async function main() {
   const repositoryPath = await cloneRepository(
-    "https://github.com/facebook/react"
+    "https://github.com/swaggy04/Forge"
   );
 
   console.log("Repository cloned to:");

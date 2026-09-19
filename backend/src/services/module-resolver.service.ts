@@ -1,29 +1,34 @@
 import path from "path";
 import resolve from "enhanced-resolve";
-const resolver = resolve.create.promise({
-  extensions: [".ts", ".tsx", ".js", ".jsx"],
-});
 
-export async function resolveModule(
-  repositoryPath: string,
-  importerFile: string,
-  importSpecifier: string,
-): Promise<string | null> {
-  const absoluteImporterPath = path.join(repositoryPath, importerFile);
+export function createModuleResolver(repositoryPath: string) {
+  const resolver = resolve.create.promise({
+    extensions: [".ts", ".tsx", ".js", ".jsx"],
+    tsconfig: {
+      configFile: path.join(repositoryPath, "tsconfig.json"),
+    },
+  });
 
-  const importerDirectory = path.dirname(absoluteImporterPath);
+  return async function resolveModule(
+    importerFile: string,
+    importSpecifier: string,
+  ): Promise<string | null> {
+    const absoluteImporterPath = path.join(repositoryPath, importerFile);
 
-  try {
-    const result = await resolver(importerDirectory, importSpecifier);
+    const importerDirectory = path.dirname(absoluteImporterPath);
 
-    if (!result) {
+    try {
+      const result = await resolver(importerDirectory, importSpecifier);
+
+      if (!result) {
+        return null;
+      }
+
+      const relativePath = path.relative(repositoryPath, result);
+
+      return relativePath.split(path.sep).join("/");
+    } catch {
       return null;
     }
-
-    const relativePath = path.relative(repositoryPath, result);
-
-    return relativePath.split(path.sep).join("/");
-  } catch {
-    return null;
-  }
+  };
 }
