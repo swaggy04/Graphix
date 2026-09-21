@@ -13,6 +13,7 @@ async function main() {
   const result = await createDependencyGraph(repositoryPath, [
     "entry.ts",
     "utils.ts",
+    "helper.ts",
     "db.ts",
   ]);
 
@@ -52,6 +53,8 @@ async function main() {
 
   console.log("\ndb.ts transitive dependents:");
   console.log(getTransitiveDependents(result.graph, "db.ts"));
+  console.log("\nhelper.ts transitive dependents:");
+  console.log(getTransitiveDependents(result.graph, "helper.ts"));
 }
 
 main().catch((error) => {

@@ -1,4 +1,5 @@
+import { format } from "./helper";
 
 export function hello() {
-  return "hello";
+  return format("hello");
 }
