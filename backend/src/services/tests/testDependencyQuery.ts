@@ -6,6 +6,7 @@ import {
   getTransitiveDependencies,
   getTransitiveDependents,
 } from "../dependency-query.service";
+import { analyzeImpact } from "../impact-analysis.service";
 
 async function main() {
   const repositoryPath = path.resolve("src/services/tests/resolver-fixture");
@@ -53,8 +54,20 @@ async function main() {
 
   console.log("\ndb.ts transitive dependents:");
   console.log(getTransitiveDependents(result.graph, "db.ts"));
+
   console.log("\nhelper.ts transitive dependents:");
   console.log(getTransitiveDependents(result.graph, "helper.ts"));
+
+  console.log("\nImpact analysis:");
+
+  console.log("\nIf helper.ts changes:");
+  console.log(analyzeImpact(result.graph, "helper.ts"));
+
+  console.log("\nIf utils.ts changes:");
+  console.log(analyzeImpact(result.graph, "utils.ts"));
+
+  console.log("\nIf db.ts changes:");
+  console.log(analyzeImpact(result.graph, "db.ts"));
 }
 
 main().catch((error) => {
