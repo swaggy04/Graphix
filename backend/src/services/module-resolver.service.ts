@@ -4,9 +4,7 @@ import resolve from "enhanced-resolve";
 export function createModuleResolver(repositoryPath: string) {
   const resolver = resolve.create.promise({
     extensions: [".ts", ".tsx", ".js", ".jsx"],
-    tsconfig: {
-      configFile: path.join(repositoryPath, "tsconfig.json"),
-    },
+    mainFiles: ["index"],
   });
 
   return async function resolveModule(

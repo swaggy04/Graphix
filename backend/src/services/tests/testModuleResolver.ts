@@ -1,7 +1,7 @@
 import { cloneRepository } from "../repository.service";
 import { discoverSourceFiles } from "../file-discovery.service";
 import { extractImports } from "../ast-parser.service";
-import { resolveModule } from "../module-resolver.service";
+
 
 async function main() {
   const repositoryPath = await cloneRepository(
