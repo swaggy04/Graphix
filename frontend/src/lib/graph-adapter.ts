@@ -12,6 +12,7 @@ export interface GraphViewEdge {
 }
 
 export interface GraphViewModel {
+  analysisId: string;
   nodes: GraphViewNode[];
   edges: GraphViewEdge[];
 }
@@ -20,189 +21,162 @@ export function createReactFlowGraph(viewModel: GraphViewModel): {
   nodes: Node[];
   edges: Edge[];
 } {
-  const horizontalSpacing = 300;
-  const verticalSpacing = 180;
+  const children = new Map<string, string[]>();
+  const incoming = new Map<string, number>();
 
-  /*
-   * ----------------------------------------------------
-   * 1. Build incoming-edge count
-   * ----------------------------------------------------
-   *
-   * incomingCount[node] tells us how many dependencies
-   * point INTO this node.
-   *
-   * Nodes with 0 incoming edges are our graph roots.
-   */
-  const incomingCount = new Map<string, number>();
+  // --------------------------------------------------
+  // Build graph relationships
+  // --------------------------------------------------
 
   for (const node of viewModel.nodes) {
-    incomingCount.set(node.id, 0);
+    children.set(node.id, []);
+    incoming.set(node.id, 0);
   }
 
   for (const edge of viewModel.edges) {
-    incomingCount.set(edge.target, (incomingCount.get(edge.target) ?? 0) + 1);
+    children.get(edge.source)?.push(edge.target);
+
+    incoming.set(edge.target, (incoming.get(edge.target) ?? 0) + 1);
   }
 
-  /*
-   * ----------------------------------------------------
-   * 2. Build adjacency list
-   * ----------------------------------------------------
-   *
-   * source -> targets
-   *
-   * Example:
-   *
-   * index.ts -> utils.ts
-   * index.ts -> db.ts
-   */
-  const adjacency = new Map<string, string[]>();
+  // --------------------------------------------------
+  // Find root nodes
+  // --------------------------------------------------
 
-  for (const node of viewModel.nodes) {
-    adjacency.set(node.id, []);
+  const roots = viewModel.nodes
+    .filter((node) => (incoming.get(node.id) ?? 0) === 0)
+    .map((node) => node.id);
+
+  // Handle completely cyclic graphs
+  if (roots.length === 0 && viewModel.nodes.length > 0) {
+    roots.push(viewModel.nodes[0].id);
   }
 
-  for (const edge of viewModel.edges) {
-    adjacency.get(edge.source)?.push(edge.target);
-  }
+  // --------------------------------------------------
+  // Layout
+  // --------------------------------------------------
 
-  /*
-   * ----------------------------------------------------
-   * 3. Assign graph levels
-   * ----------------------------------------------------
-   *
-   * Root:
-   *     level 0
-   *
-   * Dependency:
-   *     level 1
-   *
-   * Dependency of dependency:
-   *     level 2
-   */
-  const levels = new Map<string, number>();
-
-  const queue: string[] = [];
-
-  for (const node of viewModel.nodes) {
-    if ((incomingCount.get(node.id) ?? 0) === 0) {
-      levels.set(node.id, 0);
-      queue.push(node.id);
+  const positions = new Map<
+    string,
+    {
+      x: number;
+      y: number;
     }
-  }
+  >();
 
-  /*
-   * Process the graph level by level.
-   */
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    const currentLevel = levels.get(current) ?? 0;
+  const visited = new Set<string>();
 
-    const children = adjacency.get(current) ?? [];
+  // These control the tree spacing.
+  const horizontalSpacing = 270;
+  const verticalSpacing = 170;
 
-    for (const child of children) {
-      const nextLevel = currentLevel + 1;
+  let nextX = 0;
 
-      const existingLevel = levels.get(child);
-
-      if (existingLevel === undefined || nextLevel > existingLevel) {
-        levels.set(child, nextLevel);
-      }
-
-      /*
-       * Only process when all incoming edges have been
-       * accounted for.
-       */
-      const remainingIncoming = (incomingCount.get(child) ?? 0) - 1;
-
-      incomingCount.set(child, remainingIncoming);
-
-      if (remainingIncoming === 0) {
-        queue.push(child);
-      }
-    }
-  }
-
-  /*
-   * ----------------------------------------------------
-   * 4. Handle disconnected nodes / cycles
-   * ----------------------------------------------------
-   *
-   * A cyclic graph may not have a root.
-   * Any node that still has no level gets placed at
-   * level 0 so it still appears in the graph.
-   */
-  for (const node of viewModel.nodes) {
-    if (!levels.has(node.id)) {
-      levels.set(node.id, 0);
-    }
-  }
-
-  /*
-   * ----------------------------------------------------
-   * 5. Group nodes by level
-   * ----------------------------------------------------
-   */
-  const nodesByLevel = new Map<number, GraphViewNode[]>();
-
-  for (const node of viewModel.nodes) {
-    const level = levels.get(node.id) ?? 0;
-
-    if (!nodesByLevel.has(level)) {
-      nodesByLevel.set(level, []);
+  function layoutTree(nodeId: string, level: number): number {
+    if (visited.has(nodeId)) {
+      return positions.get(nodeId)?.x ?? 0;
     }
 
-    nodesByLevel.get(level)!.push(node);
-  }
+    visited.add(nodeId);
 
-  /*
-   * ----------------------------------------------------
-   * 6. Create React Flow nodes
-   * ----------------------------------------------------
-   *
-   * Nodes on the same level are placed horizontally.
-   *
-   * Example:
-   *
-   *              index
-   *
-   *       utils    db    config
-   */
-  const nodes: Node[] = [];
+    const nodeChildren = children.get(nodeId) ?? [];
 
-  const sortedLevels = [...nodesByLevel.keys()].sort((a, b) => a - b);
+    // -----------------------------
+    // Leaf
+    // -----------------------------
 
-  for (const level of sortedLevels) {
-    const levelNodes = nodesByLevel.get(level)!;
+    if (nodeChildren.length === 0) {
+      const x = nextX;
 
-    const totalWidth = (levelNodes.length - 1) * horizontalSpacing;
+      nextX += horizontalSpacing;
 
-    const startX = -totalWidth / 2;
-
-    levelNodes.forEach((node, index) => {
-      nodes.push({
-        id: node.id,
-
-        position: {
-          x: startX + index * horizontalSpacing,
-          y: level * verticalSpacing,
-        },
-
-        data: {
-          label: node.label,
-        },
+      positions.set(nodeId, {
+        x,
+        y: level * verticalSpacing,
       });
+
+      return x;
+    }
+
+    // -----------------------------
+    // Children first
+    // -----------------------------
+
+    const childPositions = nodeChildren.map((child) =>
+      layoutTree(child, level + 1),
+    );
+
+    // -----------------------------
+    // Center parent over children
+    // -----------------------------
+
+    const minX = Math.min(...childPositions);
+    const maxX = Math.max(...childPositions);
+
+    const x = (minX + maxX) / 2;
+
+    positions.set(nodeId, {
+      x,
+      y: level * verticalSpacing,
     });
+
+    return x;
   }
 
-  /*
-   * ----------------------------------------------------
-   * 7. Convert graph edges
-   * ----------------------------------------------------
-   */
+  // Layout all roots
+  for (const root of roots) {
+    layoutTree(root, 0);
+  }
+
+  // Layout disconnected nodes
+  for (const node of viewModel.nodes) {
+    if (!visited.has(node.id)) {
+      layoutTree(node.id, 0);
+    }
+  }
+
+  // --------------------------------------------------
+  // React Flow nodes
+  // --------------------------------------------------
+
+  const nodes: Node[] = viewModel.nodes.map((node) => {
+    const position = positions.get(node.id) ?? {
+      x: 0,
+      y: 0,
+    };
+
+    return {
+      id: node.id,
+
+      type: "file",
+
+      position,
+
+      data: {
+        label: node.label,
+      },
+    };
+  });
+
+  // --------------------------------------------------
+  // React Flow edges
+  // --------------------------------------------------
+
   const edges: Edge[] = viewModel.edges.map((edge) => ({
     id: edge.id,
+
     source: edge.source,
     target: edge.target,
+
+    sourceHandle: undefined,
+    targetHandle: undefined,
+
+    type: "smoothstep",
+
+    style: {
+      stroke: "#52525b",
+      strokeWidth: 1.5,
+    },
   }));
 
   return {

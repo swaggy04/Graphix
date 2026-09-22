@@ -1,25 +1,36 @@
-import type { GraphViewModel } from "./graph-adapter";
+export interface AnalyzeResponse {
+  analysisId: string;
 
-export interface AnalysisStats {
-  totalFiles: number;
-  parsedFiles: number;
-  failedFiles: number;
-  resolvedImports: number;
-  unresolvedImports: number;
-  relativeImports: number;
-  packageImports: number;
-  builtinImports: number;
-  unresolvedImportSpecifiers: string[];
+  nodes: {
+    id: string;
+    label: string;
+  }[];
+
+  edges: {
+    id: string;
+    source: string;
+    target: string;
+  }[];
+
+  stats: {
+    totalFiles: number;
+    parsedFiles: number;
+    failedFiles: number;
+    resolvedImports: number;
+    unresolvedImports: number;
+    relativeImports: number;
+    packageImports: number;
+    builtinImports: number;
+    unresolvedImportSpecifiers: string[];
+  };
 }
 
-export interface AnalyzeResponse extends GraphViewModel {
-  stats: AnalysisStats;
-}
+const API_URL = "http://localhost:3001";
 
 export async function analyzeRepository(
   repositoryUrl: string,
 ): Promise<AnalyzeResponse> {
-  const response = await fetch("http://localhost:3001/api/analyze", {
+  const response = await fetch(`${API_URL}/api/analyze`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -30,9 +41,9 @@ export async function analyzeRepository(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => null);
+    const data = await response.json().catch(() => null);
 
-    throw new Error(error?.error ?? "Failed to analyze repository");
+    throw new Error(data?.error || "Failed to analyze repository");
   }
 
   return response.json();
