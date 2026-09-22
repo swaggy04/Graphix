@@ -1,7 +1,7 @@
 import { cloneRepository } from "../repository.service";
 import { discoverSourceFiles } from "../file-discovery.service";
 import { extractImports } from "../ast-parser.service";
-
+import { createModuleResolver } from "../module-resolver.service";
 
 async function main() {
   const repositoryPath = await cloneRepository(
@@ -9,6 +9,8 @@ async function main() {
   );
 
   const files = await discoverSourceFiles(repositoryPath);
+
+  const resolveModule = createModuleResolver(repositoryPath);
 
   let candidateFile: string | undefined;
   let imports: string[] = [];
@@ -18,12 +20,16 @@ async function main() {
       continue;
     }
 
-    const foundImports = await extractImports(repositoryPath, file);
+    try {
+      const foundImports = await extractImports(repositoryPath, file);
 
-    if (foundImports.length > 0) {
-      candidateFile = file;
-      imports = foundImports;
-      break;
+      if (foundImports.length > 0) {
+        candidateFile = file;
+        imports = foundImports;
+        break;
+      }
+    } catch {
+      continue;
     }
   }
 
@@ -38,11 +44,7 @@ async function main() {
   console.log(imports);
 
   for (const importSpecifier of imports) {
-    const resolved = await resolveModule(
-      repositoryPath,
-      candidateFile,
-      importSpecifier,
-    );
+    const resolved = await resolveModule(candidateFile, importSpecifier);
 
     console.log(`\n${importSpecifier}`);
     console.log("→", resolved);

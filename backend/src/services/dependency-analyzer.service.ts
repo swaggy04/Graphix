@@ -1,8 +1,7 @@
 import Graph from "graphology";
 import { extractImports } from "./ast-parser.service";
 import { createModuleResolver } from "./module-resolver.service";
-import { classifyImport } from "../uttils/import-classifier";
-
+import { classifyImport } from "../utils/import-classifier";
 export interface DependencyAnalysis {
   graph: Graph;
   stats: {
