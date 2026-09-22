@@ -4,7 +4,8 @@ import { cloneRepository } from "../services/repository.service";
 import { discoverSourceFiles } from "../services/file-discovery.service";
 import { createDependencyGraph } from "../services/dependency-analyzer.service";
 import { createGraphViewModel } from "../services/graph-view-model.service";
-import { storeAnalysis } from "../services/analysis-store.service";
+import { getAnalysis, storeAnalysis } from "../services/analysis-store.service";
+import { analyzeFile } from "../services/file-analysis.service";
 
 /// HTTP orchestration layer.
 const router = Router();
@@ -48,4 +49,30 @@ router.post("/analyze", async (req, res) => {
   }
 });
 
+router.get("/analyze/:analysisId/file/:filePath", async (req, res) => {
+  const { analysisId, filePath } = req.params;
+
+  const graph = getAnalysis(analysisId);
+
+  // Analysis does not exist.
+  if (!graph) {
+    return res.status(404).json({
+      error: "Analysis not found",
+    });
+  }
+
+  try {
+    // Analyze the selected file against the stored graph.
+    const result = analyzeFile(graph, filePath);
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("File analysis failed:", error);
+
+    return res.status(500).json({
+      error: "Failed to analyze file",
+    });
+  }
+});
 export default router;
+///
