@@ -1,11 +1,14 @@
 import express from "express";
 import analyticRoutes from "./routes/analytic-routes";
+import cors from "cors";
 
 const app = express();
 
 const PORT = 3001;
 
 // Parse JSON request bodies.
+
+app.use(cors());
 app.use(express.json());
 
 // API routes.
