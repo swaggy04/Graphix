@@ -4,6 +4,7 @@ import { cloneRepository } from "../services/repository.service";
 import { discoverSourceFiles } from "../services/file-discovery.service";
 import { createDependencyGraph } from "../services/dependency-analyzer.service";
 import { createGraphViewModel } from "../services/graph-view-model.service";
+import { storeAnalysis } from "../services/analysis-store.service";
 
 /// HTTP orchestration layer.
 const router = Router();
@@ -27,7 +28,7 @@ router.post("/analyze", async (req, res) => {
 
     // 3. Analyze repository and build dependency graph.
     const { graph, stats } = await createDependencyGraph(repositoryPath, files);
-
+    const analysisId = storeAnalysis(graph);
     // 4. Convert internal graph into API-safe view model.
     const viewModel = createGraphViewModel(graph);
 
@@ -35,6 +36,7 @@ router.post("/analyze", async (req, res) => {
     return res.status(200).json({
       nodes: viewModel.nodes,
       edges: viewModel.edges,
+      analysisId,
       stats,
     });
   } catch (error) {
