@@ -1,50 +1,24 @@
 "use client";
 
-import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import { Handle, Position, type NodeProps } from "@xyflow/react";
 
-export type FileNodeData = {
-  label: string;
-};
-
-export type FileNodeType = Node<FileNodeData, "file">;
-
-export default function FileNode({ data, selected }: NodeProps<FileNodeType>) {
+export default function FileNode({ data }: NodeProps) {
   return (
-    <div
-      className={`
-        relative
-        flex
-        h-[58px]
-        w-[190px]
-        items-center
-        justify-center
-        rounded-lg
-        border
-        bg-[#111113]
-        px-4
-        transition
-        duration-150
-        ${
-          selected
-            ? "border-zinc-400 shadow-[0_0_0_2px_rgba(161,161,170,0.12)]"
-            : "border-zinc-800"
-        }
-      `}
-    >
+    <div className="relative min-w-45 rounded-lg border border-zinc-800 bg-zinc-950 px-5 py-3">
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-2 !w-2 !border-2 !border-[#09090b] !bg-zinc-500"
+        className="h-2 w-2 border-0 bg-zinc-500"
       />
 
-      <span className="max-w-full truncate text-sm font-medium text-zinc-200">
-        {data.label}
-      </span>
+      <div className="text-center text-sm font-medium text-zinc-200">
+        {String(data.label)}
+      </div>
 
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-2 !w-2 !border-2 !border-[#09090b] !bg-zinc-500"
+        className="h-2 w-2 border-0 bg-zinc-500"
       />
     </div>
   );
