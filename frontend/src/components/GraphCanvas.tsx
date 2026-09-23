@@ -12,7 +12,6 @@ import {
   ReactFlowProvider,
   type Edge,
   type Node,
-  type ReactFlowInstance,
 } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
@@ -53,15 +52,7 @@ const nodeTypes = {
   file: FileNode,
 };
 
-export default function GraphCanvas(props: GraphCanvasProps) {
-  return (
-    <ReactFlowProvider>
-      <GraphCanvasContent {...props} />
-    </ReactFlowProvider>
-  );
-}
-
-function GraphCanvasContent({
+export default function GraphCanvas({
   nodes,
   edges,
   analysisId,
@@ -80,16 +71,11 @@ function GraphCanvasContent({
     new Set(),
   );
 
-  const [reactFlowInstance, setReactFlowInstance] =
-    useState<ReactFlowInstance | null>(null);
+  const [highlightedEdges, setHighlightedEdges] = useState<Set<string>>(
+    new Set(),
+  );
 
-  /*
-   * ---------------------------------------------------------
-   * ANALYZE FILE
-   * ---------------------------------------------------------
-   */
-
-  const analyzeFile = async (node: Node) => {
+  const handleNodeClick = async (_event: React.MouseEvent, node: Node) => {
     if (!analysisId) {
       return;
     }
@@ -97,20 +83,6 @@ function GraphCanvasContent({
     setSelectedNode(node);
     setFileAnalysis(null);
     setLoading(true);
-
-    /*
-     * Focus the graph on the selected node.
-     */
-    if (reactFlowInstance) {
-      reactFlowInstance.setCenter(
-        node.position.x + (node.measured?.width ?? 180) / 2,
-        node.position.y + (node.measured?.height ?? 50) / 2,
-        {
-          zoom: 1.1,
-          duration: 400,
-        },
-      );
-    }
 
     try {
       const encodedFilePath = encodeURIComponent(node.id);
@@ -127,13 +99,10 @@ function GraphCanvasContent({
 
       setFileAnalysis(data);
 
-      /*
-       * Highlight:
-       *
-       * selected file
-       * + direct dependencies
-       * + direct dependents
-       */
+      // ------------------------------------------
+      // Highlight selected + direct relationships
+      // ------------------------------------------
+
       const relatedFiles = new Set<string>([
         node.id,
         ...data.dependencies.direct,
@@ -141,6 +110,20 @@ function GraphCanvasContent({
       ]);
 
       setHighlightedNodes(relatedFiles);
+
+      // ------------------------------------------
+      // Highlight edges connected to selected node
+      // ------------------------------------------
+
+      const relatedEdges = new Set<string>();
+
+      for (const edge of edges) {
+        if (edge.source === node.id || edge.target === node.id) {
+          relatedEdges.add(edge.id);
+        }
+      }
+
+      setHighlightedEdges(relatedEdges);
     } catch (error) {
       console.error("File analysis failed:", error);
     } finally {
@@ -148,59 +131,32 @@ function GraphCanvasContent({
     }
   };
 
-  /*
-   * ---------------------------------------------------------
-   * GRAPH NODE CLICK
-   * ---------------------------------------------------------
-   */
-
-  const handleNodeClick = async (_event: React.MouseEvent, node: Node) => {
-    await analyzeFile(node);
-  };
-
-  /*
-   * ---------------------------------------------------------
-   * PANEL CLICK
-   * ---------------------------------------------------------
-   */
-
-  const handleFileClick = async (file: string) => {
-    const node = nodes.find((node) => node.id === file);
-
-    if (!node) {
-      console.warn(`Node not found: ${file}`);
-      return;
-    }
-
-    await analyzeFile(node);
-  };
-
-  /*
-   * ---------------------------------------------------------
-   * CLEAR SELECTION
-   * ---------------------------------------------------------
-   */
-
   const handlePaneClick = () => {
     setSelectedNode(null);
     setFileAnalysis(null);
+
     setHighlightedNodes(new Set());
+    setHighlightedEdges(new Set());
   };
 
-  /*
-   * ---------------------------------------------------------
-   * VISUAL NODE STATE
-   * ---------------------------------------------------------
-   */
+  // ------------------------------------------
+  // Update node appearance
+  // ------------------------------------------
 
-  const displayNodes = nodes.map((node) => {
+  const displayNodes: Node[] = nodes.map((node) => {
     const isSelected = selectedNode?.id === node.id;
 
     const isHighlighted = highlightedNodes.has(node.id);
 
-    const hasSelection = highlightedNodes.size > 0;
-
-    const isDimmed = hasSelection && !isSelected && !isHighlighted;
+    /*
+     * IMPORTANT:
+     *
+     * Previously this was around 0.3 which made
+     * unrelated nodes almost disappear.
+     *
+     * We keep them visible at ~70%.
+     */
+    const isDimmed = selectedNode !== null && !isSelected && !isHighlighted;
 
     return {
       ...node,
@@ -209,437 +165,327 @@ function GraphCanvasContent({
         ...node.data,
 
         selected: isSelected,
+
         highlighted: isHighlighted,
+
         dimmed: isDimmed,
       },
     };
   });
 
+  // ------------------------------------------
+  // Update edge appearance
+  // ------------------------------------------
+
+  const displayEdges: Edge[] = edges.map((edge) => {
+    const isHighlighted = highlightedEdges.has(edge.id);
+
+    /*
+     * When nothing is selected:
+     * keep normal graph edges.
+     *
+     * When a node is selected:
+     * connected edges become stronger.
+     * Other edges remain visible.
+     */
+
+    if (!selectedNode) {
+      return {
+        ...edge,
+
+        animated: false,
+
+        style: {
+          stroke: "#52525b",
+          strokeWidth: 1.5,
+          strokeDasharray: "6 5",
+          opacity: 0.7,
+        },
+      };
+    }
+
+    if (isHighlighted) {
+      return {
+        ...edge,
+
+        animated: true,
+
+        style: {
+          stroke: "#a1a1aa",
+          strokeWidth: 2,
+          strokeDasharray: "6 5",
+          opacity: 1,
+        },
+      };
+    }
+
+    return {
+      ...edge,
+
+      animated: false,
+
+      style: {
+        stroke: "#3f3f46",
+        strokeWidth: 1.5,
+        strokeDasharray: "6 5",
+        opacity: 0.35,
+      },
+    };
+  });
+
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#09090b]">
-      <ReactFlow
-        nodes={displayNodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onInit={setReactFlowInstance}
-        fitView
-        fitViewOptions={{
-          padding: 0.2,
-          maxZoom: 1.1,
-        }}
-        onNodeClick={handleNodeClick}
-        onPaneClick={handlePaneClick}
-        defaultEdgeOptions={{
-          type: "smoothstep",
-          animated: false,
-          style: {
-            stroke: "#3f3f46",
-            strokeWidth: 1.5,
-          },
-        }}
-        minZoom={0.1}
-        maxZoom={2}
-        proOptions={{
-          hideAttribution: true,
-        }}
-      >
-        {/* ================================================= */}
-        {/* BACKGROUND */}
-        {/* ================================================= */}
+    <ReactFlowProvider>
+      <div className="relative h-full w-full bg-[#09090b]">
+        <ReactFlow
+          nodes={displayNodes}
+          edges={displayEdges}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{
+            padding: 0.2,
+            maxZoom: 1.1,
+          }}
+          onNodeClick={handleNodeClick}
+          onPaneClick={handlePaneClick}
+          defaultEdgeOptions={{
+            type: "smoothstep",
+          }}
+          minZoom={0.1}
+          maxZoom={2}
+          proOptions={{
+            hideAttribution: true,
+          }}
+        >
+          {/* Background */}
 
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={24}
-          size={1.5}
-          color="#3f3f46"
-        />
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={24}
+            size={1.5}
+            color="#3f3f46"
+          />
 
-        {/* ================================================= */}
-        {/* CONTROLS */}
-        {/* ================================================= */}
+          {/* Controls */}
 
-        <Controls
-          position="bottom-left"
-          showInteractive={false}
-          className="
-            !m-4
-            !overflow-hidden
-            !rounded-xl
-            !border
-            !border-zinc-800
-            !bg-[#111113]
-            !shadow-2xl
-          "
-        />
+          <Controls position="bottom-left" showInteractive={false} />
 
-        {/* ================================================= */}
-        {/* MINIMAP */}
-        {/* ================================================= */}
+          {/* MiniMap */}
 
-        <MiniMap
-          position="bottom-right"
-          pannable
-          zoomable
-          className="
-            !m-4
-            !overflow-hidden
-            !rounded-xl
-            !border
-            !border-zinc-800
-          "
-          bgColor="#09090b"
-          maskColor="rgba(9, 9, 11, 0.75)"
-          nodeColor="#3f3f46"
-          nodeStrokeColor="#71717a"
-          nodeStrokeWidth={1}
-        />
+          <MiniMap
+            position="bottom-right"
+            pannable
+            zoomable
+            bgColor="#111113"
+            maskColor="rgba(9, 9, 11, 0.7)"
+            nodeColor="#3f3f46"
+            nodeStrokeColor="#52525b"
+            nodeStrokeWidth={1}
+          />
 
-        {/* ================================================= */}
-        {/* REPOSITORY SEARCH */}
-        {/* ================================================= */}
+          {/* Repository Search */}
 
-        <Panel position="top-center">
-          <div
-            className="
-              flex
-              items-center
-              gap-2
-              rounded-xl
-              border
-              border-zinc-800
-              bg-[#111113]/95
-              p-2
-              shadow-2xl
-              backdrop-blur
-            "
-          >
-            <input
-              type="text"
-              value={repositoryUrl}
-              onChange={(event) => setRepositoryUrl(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !analyzing) {
-                  void onAnalyze();
-                }
-              }}
-              placeholder="https://github.com/owner/repository"
-              disabled={analyzing}
-              className="
-                w-[420px]
-                rounded-lg
-                border
-                border-zinc-800
-                bg-[#09090b]
-                px-4
-                py-2.5
-                text-sm
-                text-zinc-200
-                outline-none
-                placeholder:text-zinc-600
-                focus:border-zinc-600
-                disabled:opacity-50
-              "
-            />
-
-            <button
-              onClick={() => void onAnalyze()}
-              disabled={analyzing}
-              className="
-                rounded-lg
-                bg-zinc-100
-                px-5
-                py-2.5
-                text-sm
-                font-medium
-                text-zinc-950
-                transition
-                hover:bg-white
-                disabled:cursor-not-allowed
-                disabled:opacity-50
-              "
-            >
-              {analyzing ? "Analyzing..." : "Analyze"}
-            </button>
-          </div>
-        </Panel>
-
-        {/* ================================================= */}
-        {/* GRAPH INFO */}
-        {/* ================================================= */}
-
-        {nodes.length > 0 && (
-          <Panel position="top-left">
-            <div
-              className="
-                rounded-xl
-                border
-                border-zinc-800
-                bg-[#111113]/95
-                px-4
-                py-3
-                shadow-xl
-                backdrop-blur
-              "
-            >
-              <div
+          <Panel position="top-center">
+            <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-[#111113]/95 p-2 shadow-2xl backdrop-blur">
+              <input
+                type="text"
+                value={repositoryUrl}
+                onChange={(event) => setRepositoryUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !analyzing) {
+                    void onAnalyze();
+                  }
+                }}
+                placeholder="https://github.com/owner/repository"
+                disabled={analyzing}
                 className="
-                  text-[10px]
+                  w-105
+                  rounded-lg
+                  border
+                  border-zinc-800
+                  bg-[#09090b]
+                  px-4
+                  py-2.5
+                  text-sm
+                  text-zinc-200
+                  outline-none
+                  placeholder:text-zinc-600
+                  focus:border-zinc-600
+                  disabled:opacity-50
+                "
+              />
+
+              <button
+                onClick={() => void onAnalyze()}
+                disabled={analyzing}
+                className="
+                  rounded-lg
+                  bg-zinc-100
+                  px-5
+                  py-2.5
+                  text-sm
                   font-medium
-                  uppercase
-                  tracking-[0.15em]
-                  text-zinc-600
+                  text-zinc-950
+                  transition
+                  hover:bg-white
+                  disabled:cursor-not-allowed
+                  disabled:opacity-50
                 "
               >
-                Grapix
-              </div>
-
-              <div className="mt-1 text-sm font-semibold text-zinc-100">
-                Dependency Graph
-              </div>
-
-              <div className="mt-1 text-xs text-zinc-500">
-                {nodes.length} files · {edges.length} dependencies
-              </div>
+                {analyzing ? "Analyzing..." : "Analyze"}
+              </button>
             </div>
           </Panel>
-        )}
 
-        {/* ================================================= */}
-        {/* SELECTED FILE */}
-        {/* ================================================= */}
+          {/* Graph Information */}
 
-        {selectedNode && (
-          <Panel position="top-right">
-            <div
-              className="
-                w-80
-                overflow-hidden
-                rounded-xl
-                border
-                border-zinc-800
-                bg-[#111113]
-                shadow-2xl
-              "
-            >
-              {/* Header */}
-
-              <div className="border-b border-zinc-800 px-5 py-4">
-                <div
-                  className="
-                    text-[10px]
-                    font-medium
-                    uppercase
-                    tracking-wider
-                    text-zinc-600
-                  "
-                >
-                  Selected file
+          {nodes.length > 0 && (
+            <Panel position="top-left">
+              <div className="rounded-xl border border-zinc-800 bg-[#111113]/95 px-4 py-3 shadow-xl">
+                <div className="text-[10px] font-medium uppercase tracking-[0.15em] text-zinc-600">
+                  Grapix
                 </div>
 
-                <div
-                  className="
-                    mt-1
-                    break-all
-                    text-sm
-                    font-medium
-                    text-zinc-100
-                  "
-                >
-                  {selectedNode.id}
+                <div className="mt-1 text-sm font-semibold text-zinc-100">
+                  Dependency Graph
+                </div>
+
+                <div className="mt-1 text-xs text-zinc-500">
+                  {nodes.length} files · {edges.length} dependencies
                 </div>
               </div>
+            </Panel>
+          )}
 
-              {/* Loading */}
+          {/* Selected File */}
 
-              {loading && (
-                <div className="px-5 py-6 text-sm text-zinc-500">
-                  Analyzing file...
-                </div>
-              )}
+          {selectedNode && (
+            <Panel position="top-right">
+              <div className="w-80 overflow-hidden rounded-xl border border-zinc-800 bg-[#111113] shadow-2xl">
+                <div className="border-b border-zinc-800 px-5 py-4">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-600">
+                    Selected file
+                  </div>
 
-              {/* Analysis */}
-
-              {fileAnalysis && !loading && (
-                <div className="max-h-[70vh] overflow-y-auto">
-                  <AnalysisSection
-                    title="Dependencies"
-                    direct={fileAnalysis.dependencies.direct}
-                    transitive={fileAnalysis.dependencies.transitive}
-                    onFileClick={handleFileClick}
-                  />
-
-                  <AnalysisSection
-                    title="Dependents"
-                    direct={fileAnalysis.dependents.direct}
-                    transitive={fileAnalysis.dependents.transitive}
-                    onFileClick={handleFileClick}
-                  />
-
-                  {/* Impact */}
-
-                  <div className="border-t border-zinc-800 px-5 py-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-zinc-100">
-                        Impact
-                      </h3>
-
-                      <span
-                        className="
-                          rounded-full
-                          bg-zinc-800
-                          px-2
-                          py-1
-                          text-xs
-                          text-zinc-400
-                        "
-                      >
-                        {fileAnalysis.impact.affectedFiles.length}
-                      </span>
-                    </div>
-
-                    {fileAnalysis.impact.affectedFiles.length === 0 ? (
-                      <p className="text-xs text-zinc-600">
-                        No affected files.
-                      </p>
-                    ) : (
-                      <FileList
-                        files={fileAnalysis.impact.affectedFiles}
-                        onFileClick={handleFileClick}
-                      />
-                    )}
+                  <div className="mt-1 break-all text-sm font-medium text-zinc-100">
+                    {selectedNode.id}
                   </div>
                 </div>
-              )}
-            </div>
-          </Panel>
-        )}
-      </ReactFlow>
-    </div>
+
+                {loading && (
+                  <div className="px-5 py-6 text-sm text-zinc-500">
+                    Analyzing file...
+                  </div>
+                )}
+
+                {fileAnalysis && !loading && (
+                  <div className="max-h-[70vh] overflow-y-auto">
+                    <AnalysisSection
+                      title="Dependencies"
+                      direct={fileAnalysis.dependencies.direct}
+                      transitive={fileAnalysis.dependencies.transitive}
+                    />
+
+                    <AnalysisSection
+                      title="Dependents"
+                      direct={fileAnalysis.dependents.direct}
+                      transitive={fileAnalysis.dependents.transitive}
+                    />
+
+                    <div className="border-t border-zinc-800 px-5 py-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-zinc-100">
+                          Impact
+                        </h3>
+
+                        <span className="rounded-full bg-zinc-800 px-2 py-1 text-xs text-zinc-400">
+                          {fileAnalysis.impact.affectedFiles.length}
+                        </span>
+                      </div>
+
+                      {fileAnalysis.impact.affectedFiles.length === 0 ? (
+                        <p className="text-xs text-zinc-600">
+                          No affected files.
+                        </p>
+                      ) : (
+                        <FileList files={fileAnalysis.impact.affectedFiles} />
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Panel>
+          )}
+        </ReactFlow>
+      </div>
+    </ReactFlowProvider>
   );
 }
-
-/* ========================================================= */
-/* ANALYSIS SECTION */
-/* ========================================================= */
 
 function AnalysisSection({
   title,
   direct,
   transitive,
-  onFileClick,
 }: {
   title: string;
   direct: string[];
   transitive: string[];
-  onFileClick: (file: string) => void;
 }) {
   return (
-    <div className="border-t border-zinc-800 px-5 py-4">
+    <div className="border-t border-zinc-800 px-5 py-4 first:border-t-0">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-zinc-100">{title}</h3>
 
-        <span
-          className="
-            rounded-full
-            bg-zinc-800
-            px-2
-            py-1
-            text-xs
-            text-zinc-500
-          "
-        >
+        <span className="rounded-full bg-zinc-800 px-2 py-1 text-xs text-zinc-500">
           {direct.length + transitive.length}
         </span>
       </div>
 
-      {/* Direct */}
-
       <div>
-        <div
-          className="
-            mb-2
-            text-[10px]
-            font-medium
-            uppercase
-            tracking-wider
-            text-zinc-600
-          "
-        >
+        <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
           Direct
         </div>
 
         {direct.length === 0 ? (
           <p className="text-xs text-zinc-600">None</p>
         ) : (
-          <FileList files={direct} onFileClick={onFileClick} />
+          <FileList files={direct} />
         )}
       </div>
 
-      {/* Transitive */}
-
       <div className="mt-4">
-        <div
-          className="
-            mb-2
-            text-[10px]
-            font-medium
-            uppercase
-            tracking-wider
-            text-zinc-600
-          "
-        >
+        <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
           Transitive
         </div>
 
         {transitive.length === 0 ? (
           <p className="text-xs text-zinc-600">None</p>
         ) : (
-          <FileList files={transitive} onFileClick={onFileClick} />
+          <FileList files={transitive} />
         )}
       </div>
     </div>
   );
 }
 
-/* ========================================================= */
-/* FILE LIST */
-/* ========================================================= */
-
-function FileList({
-  files,
-  onFileClick,
-}: {
-  files: string[];
-  onFileClick: (file: string) => void;
-}) {
+function FileList({ files }: { files: string[] }) {
   return (
     <div className="space-y-1.5">
       {files.map((file) => (
-        <button
+        <div
           key={file}
-          type="button"
-          onClick={() => onFileClick(file)}
           className="
-            block
-            w-full
-            cursor-pointer
             rounded-lg
             border
             border-zinc-800
             bg-zinc-900/50
             px-3
             py-2
-            text-left
             text-xs
             text-zinc-400
-            transition
-            hover:border-zinc-600
-            hover:bg-zinc-800
-            hover:text-zinc-200
           "
         >
           <span className="break-all">{file}</span>
-        </button>
+        </div>
       ))}
     </div>
   );

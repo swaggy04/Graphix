@@ -12,9 +12,9 @@ interface FileNodeData extends Record<string, unknown> {
 type FileNodeType = Node<FileNodeData, "file">;
 
 export default function FileNode({ data }: NodeProps<FileNodeType>) {
-  const selected = data.selected === true;
-  const highlighted = data.highlighted === true;
-  const dimmed = data.dimmed === true;
+  const selected = data?.selected === true;
+  const highlighted = data?.highlighted === true;
+  const dimmed = data?.dimmed === true;
 
   return (
     <div
@@ -37,23 +37,46 @@ export default function FileNode({ data }: NodeProps<FileNodeType>) {
               : "border-zinc-800"
         }
 
-        ${dimmed ? "opacity-25" : "opacity-100"}
-      `}
+        ${dimmed ? "opacity-80" : "opacity-100"}      `}
     >
       <Handle
         type="target"
         position={Position.Top}
-        className="h-2 w-2 border-0 bg-zinc-500"
+        className="
+          h-2
+          w-2
+          border-0
+          bg-zinc-500
+        "
       />
 
-      <div className="text-center text-sm font-medium text-zinc-200">
-        {data.label ?? "Unknown file"}
+      <div
+        className={`
+          text-center
+          text-sm
+          font-medium
+          transition-colors
+          ${
+            selected
+              ? "text-white"
+              : highlighted
+                ? "text-zinc-200"
+                : "text-zinc-400"
+          }
+        `}
+      >
+        {data?.label ?? "Unknown file"}
       </div>
 
       <Handle
         type="source"
         position={Position.Bottom}
-        className="h-2 w-2 border-0 bg-zinc-500"
+        className="
+          h-2
+          w-2
+          border-0
+          bg-zinc-500
+        "
       />
     </div>
   );
