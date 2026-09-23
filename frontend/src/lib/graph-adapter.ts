@@ -1,3 +1,4 @@
+import ELK from "elkjs/lib/elk.bundled.js";
 import type { Edge, Node } from "@xyflow/react";
 
 export interface GraphViewNode {
@@ -17,162 +18,156 @@ export interface GraphViewModel {
   edges: GraphViewEdge[];
 }
 
-export function createReactFlowGraph(viewModel: GraphViewModel): {
+const elk = new ELK();
+
+// ==================================================
+// NODE SIZE
+// Must match FileNode
+// ==================================================
+
+const NODE_WIDTH = 240;
+const NODE_HEIGHT = 52;
+
+// ==================================================
+// ELK CONFIGURATION
+// ==================================================
+
+const NODE_NODE_SPACING = 50;
+const NODE_LAYER_SPACING = 100;
+
+const COMPONENT_SPACING = 140;
+
+// ==================================================
+// CREATE REACT FLOW GRAPH
+// ==================================================
+
+export async function createReactFlowGraph(viewModel: GraphViewModel): Promise<{
   nodes: Node[];
   edges: Edge[];
-} {
-  const children = new Map<string, string[]>();
-  const incoming = new Map<string, number>();
-
-  // --------------------------------------------------
-  // Build graph relationships
-  // --------------------------------------------------
-
-  for (const node of viewModel.nodes) {
-    children.set(node.id, []);
-    incoming.set(node.id, 0);
-  }
-
-  for (const edge of viewModel.edges) {
-    children.get(edge.source)?.push(edge.target);
-
-    incoming.set(edge.target, (incoming.get(edge.target) ?? 0) + 1);
-  }
-
-  // --------------------------------------------------
-  // Find root nodes
-  // --------------------------------------------------
-
-  const roots = viewModel.nodes
-    .filter((node) => (incoming.get(node.id) ?? 0) === 0)
-    .map((node) => node.id);
-
-  // Handle completely cyclic graphs
-  if (roots.length === 0 && viewModel.nodes.length > 0) {
-    roots.push(viewModel.nodes[0].id);
-  }
-
-  // --------------------------------------------------
-  // Layout
-  // --------------------------------------------------
-
-  const positions = new Map<
-    string,
-    {
-      x: number;
-      y: number;
-    }
-  >();
-
-  const visited = new Set<string>();
-
-  // These control the tree spacing.
-  const horizontalSpacing = 240;
-  const verticalSpacing = 160;
-
-  let nextX = 0;
-
-  function layoutTree(nodeId: string, level: number): number {
-    if (visited.has(nodeId)) {
-      return positions.get(nodeId)?.x ?? 0;
-    }
-
-    visited.add(nodeId);
-
-    const nodeChildren = children.get(nodeId) ?? [];
-
-    // -----------------------------
-    // Leaf
-    // -----------------------------
-
-    if (nodeChildren.length === 0) {
-      const x = nextX;
-
-      nextX += horizontalSpacing;
-
-      positions.set(nodeId, {
-        x,
-        y: level * verticalSpacing,
-      });
-
-      return x;
-    }
-
-    // -----------------------------
-    // Children first
-    // -----------------------------
-
-    const childPositions = nodeChildren.map((child) =>
-      layoutTree(child, level + 1),
-    );
-
-    // -----------------------------
-    // Center parent over children
-    // -----------------------------
-
-    const minX = Math.min(...childPositions);
-    const maxX = Math.max(...childPositions);
-
-    const x = (minX + maxX) / 2;
-
-    positions.set(nodeId, {
-      x,
-      y: level * verticalSpacing,
-    });
-
-    return x;
-  }
-
-  // Layout all roots
-  for (const root of roots) {
-    layoutTree(root, 0);
-  }
-
-  // Layout disconnected nodes
-  for (const node of viewModel.nodes) {
-    if (!visited.has(node.id)) {
-      layoutTree(node.id, 0);
-    }
-  }
-
-  // --------------------------------------------------
-  // React Flow nodes
-  // --------------------------------------------------
-
-  const nodes: Node[] = viewModel.nodes.map((node) => {
-    const position = positions.get(node.id) ?? {
-      x: 0,
-      y: 0,
-    };
-
+}> {
+  if (viewModel.nodes.length === 0) {
     return {
+      nodes: [],
+      edges: [],
+    };
+  }
+
+  // ------------------------------------------------
+  // Build ELK graph
+  // ------------------------------------------------
+
+  const graph = {
+    id: "grapix-root",
+
+    layoutOptions: {
+      // Hierarchical / layered dependency graph
+      "elk.algorithm": "layered",
+
+      // Top -> Bottom
+      "elk.direction": "DOWN",
+
+      // Spacing between nodes in the same layer
+      "elk.spacing.nodeNode": String(NODE_NODE_SPACING),
+
+      // Spacing between layers
+      "elk.layered.spacing.nodeNodeBetweenLayers": String(NODE_LAYER_SPACING),
+
+      // Keep disconnected components separated
+      "elk.spacing.componentComponent": String(COMPONENT_SPACING),
+
+      // Better handling of cyclic dependencies
+      "elk.layered.feedbackEdges": "true",
+
+      // Try to minimize crossings
+      "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+
+      // More balanced placement
+      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
+
+      // Favor compact graph
+      "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
+
+      // Don't allow unnecessary edge routing
+      "elk.edgeRouting": "ORTHOGONAL",
+
+      // Components should be handled independently
+      "elk.hierarchyHandling": "INCLUDE_CHILDREN",
+
+      // Keep graph compact
+      "elk.layered.compaction.postCompaction": "EDGE_LENGTH",
+    },
+
+    children: viewModel.nodes.map((node) => ({
       id: node.id,
 
-      type: "file",
+      width: NODE_WIDTH,
+      height: NODE_HEIGHT,
 
-      position,
+      labels: [
+        {
+          text: node.label,
+        },
+      ],
+    })),
 
-      data: {
-        label: node.label,
-      },
-    };
-  });
+    edges: viewModel.edges.map((edge) => ({
+      id: edge.id,
 
-  // --------------------------------------------------
-  // React Flow edges
-  // --------------------------------------------------
+      sources: [edge.source],
+
+      targets: [edge.target],
+    })),
+  };
+
+  // ------------------------------------------------
+  // Run ELK
+  // ------------------------------------------------
+
+  const layout = await elk.layout(graph);
+
+  // ------------------------------------------------
+  // Convert ELK nodes -> React Flow nodes
+  // ------------------------------------------------
+
+  const nodes: Node[] = (layout.children ?? []).map((node) => ({
+    id: node.id,
+
+    type: "file",
+
+    position: {
+      x: node.x ?? 0,
+      y: node.y ?? 0,
+    },
+
+    data: {
+      label: viewModel.nodes.find((item) => item.id === node.id)?.label ?? "Unknown file",
+    },
+
+    draggable: true,
+  }));
+
+  // ------------------------------------------------
+  // Convert edges
+  // ------------------------------------------------
 
   const edges: Edge[] = viewModel.edges.map((edge) => ({
     id: edge.id,
+
     source: edge.source,
+
     target: edge.target,
+
     type: "smoothstep",
+
+    animated: false,
 
     style: {
       stroke: "#52525b",
       strokeWidth: 1.5,
+      opacity: 0.7,
     },
   }));
+
   return {
     nodes,
     edges,
