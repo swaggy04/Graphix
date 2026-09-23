@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-
 import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, ReactFlowProvider, type Edge, type Node } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
@@ -52,11 +51,8 @@ const nodeTypes = {
 
 export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, setRepositoryUrl, onAnalyze, analyzing }: GraphCanvasProps) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-
   const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
-
   const [loading, setLoading] = useState(false);
-
   const [showIsolated, setShowIsolated] = useState(true);
 
   // ==================================================
@@ -66,7 +62,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
   const isolatedCount = useMemo(() => {
     return nodes.filter((node) => {
       const data = node.data as FileNodeData | undefined;
-
       return data?.isolated === true;
     }).length;
   }, [nodes]);
@@ -84,7 +79,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
 
     return nodes.filter((node) => {
       const data = node.data as FileNodeData | undefined;
-
       return data?.isolated !== true;
     });
   }, [nodes, showIsolated]);
@@ -122,7 +116,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
 
         data: {
           ...node.data,
-
           selected: false,
           highlighted: false,
           dimmed: false,
@@ -132,7 +125,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
 
     return visibleNodes.map((node) => {
       const selected = node.id === selectedNode.id;
-
       const highlighted = highlightedNodeIds.has(node.id);
 
       return {
@@ -140,17 +132,13 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
 
         data: {
           ...node.data,
-
           selected,
-
           highlighted,
-
           dimmed: !highlighted,
         },
 
         style: {
           ...node.style,
-
           zIndex: selected ? 20 : highlighted ? 10 : 1,
         },
       };
@@ -170,7 +158,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
 
         style: {
           ...edge.style,
-
           stroke: "#3f3f46",
           strokeWidth: 1.2,
           opacity: 0.55,
@@ -188,11 +175,8 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
 
         style: {
           ...edge.style,
-
           stroke: connected ? "#a1a1aa" : "#27272a",
-
           strokeWidth: connected ? 2 : 1,
-
           opacity: connected ? 0.95 : 0.35,
         },
       };
@@ -210,9 +194,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
       }
 
       setSelectedNode(node);
-
       setFileAnalysis(null);
-
       setLoading(true);
 
       try {
@@ -242,7 +224,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
 
   const handlePaneClick = useCallback(() => {
     setSelectedNode(null);
-
     setFileAnalysis(null);
   }, []);
 
@@ -260,7 +241,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
 
   return (
     <ReactFlowProvider>
-      <div className="relative h-full w-full overflow-hidden bg-[#0b0b0d]">
+      <div className="relative h-full w-full overflow-hidden bg-[#09090b]">
         <ReactFlow
           nodes={displayNodes}
           edges={displayEdges}
@@ -666,7 +647,13 @@ function FileInspector({ selectedNode, fileAnalysis, loading, onClose }: { selec
       {/* Analysis */}
 
       {fileAnalysis && !loading && (
-        <div className="max-h-[calc(100vh-180px)] overflow-y-auto">
+        <div
+          className="
+            max-h-[calc(100vh-180px)]
+            overflow-y-auto
+            grapix-inspector-scroll
+          "
+        >
           <AnalysisSection title="Dependencies" direct={fileAnalysis.dependencies.direct} transitive={fileAnalysis.dependencies.transitive} />
 
           <AnalysisSection title="Dependents" direct={fileAnalysis.dependents.direct} transitive={fileAnalysis.dependents.transitive} />
