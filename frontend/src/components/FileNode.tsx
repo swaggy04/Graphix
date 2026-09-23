@@ -1,10 +1,45 @@
 "use client";
 
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 
-export default function FileNode({ data }: NodeProps) {
+interface FileNodeData extends Record<string, unknown> {
+  label?: string;
+  selected?: boolean;
+  highlighted?: boolean;
+  dimmed?: boolean;
+}
+
+type FileNodeType = Node<FileNodeData, "file">;
+
+export default function FileNode({ data }: NodeProps<FileNodeType>) {
+  const selected = data.selected === true;
+  const highlighted = data.highlighted === true;
+  const dimmed = data.dimmed === true;
+
   return (
-    <div className="relative min-w-45 rounded-lg border border-zinc-800 bg-zinc-950 px-5 py-3">
+    <div
+      className={`
+        relative
+        min-w-45
+        rounded-lg
+        border
+        bg-zinc-950
+        px-5
+        py-3
+        transition-all
+        duration-200
+
+        ${
+          selected
+            ? "border-zinc-200 shadow-lg shadow-white/10"
+            : highlighted
+              ? "border-zinc-500"
+              : "border-zinc-800"
+        }
+
+        ${dimmed ? "opacity-25" : "opacity-100"}
+      `}
+    >
       <Handle
         type="target"
         position={Position.Top}
@@ -12,7 +47,7 @@ export default function FileNode({ data }: NodeProps) {
       />
 
       <div className="text-center text-sm font-medium text-zinc-200">
-        {String(data.label)}
+        {data.label ?? "Unknown file"}
       </div>
 
       <Handle
