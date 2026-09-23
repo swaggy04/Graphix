@@ -27,22 +27,36 @@ export default function Home() {
       setLoading(true);
       setError(null);
 
-      // Clear the previous graph while a new analysis is running.
+      // Clear previous graph
       setNodes([]);
       setEdges([]);
       setAnalysisId(null);
 
+      // ------------------------------------------------
+      // 1. Analyze repository
+      // ------------------------------------------------
+
       const graphViewModel = await analyzeRepository(url);
 
-      const graph = createReactFlowGraph(graphViewModel);
+      // ------------------------------------------------
+      // 2. Run ELK layout
+      //
+      // createReactFlowGraph is async because ELK
+      // performs the layout asynchronously.
+      // ------------------------------------------------
+
+      const graph = await createReactFlowGraph(graphViewModel);
+
+      // ------------------------------------------------
+      // 3. Update React Flow
+      // ------------------------------------------------
 
       setNodes(graph.nodes);
       setEdges(graph.edges);
+
       setAnalysisId(graphViewModel.analysisId);
     } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Failed to analyze repository",
-      );
+      setError(error instanceof Error ? error.message : "Failed to analyze repository");
     } finally {
       setLoading(false);
     }
@@ -55,24 +69,13 @@ export default function Home() {
         <div className="absolute left-1/2 top-5 z-100 flex max-w-md -translate-x-1/2 items-center gap-3 rounded-lg border border-red-500/20 bg-red-950/90 px-4 py-3 text-sm text-red-300 shadow-2xl backdrop-blur">
           <span>{error}</span>
 
-          <button
-            onClick={() => setError(null)}
-            className="ml-2 text-red-400 transition hover:text-red-200"
-          >
+          <button onClick={() => setError(null)} className="ml-2 text-red-400 transition hover:text-red-200" aria-label="Dismiss error">
             ×
           </button>
         </div>
       )}
 
-      <GraphCanvas
-        nodes={nodes}
-        edges={edges}
-        analysisId={analysisId}
-        repositoryUrl={repositoryUrl}
-        setRepositoryUrl={setRepositoryUrl}
-        onAnalyze={handleAnalyze}
-        analyzing={loading}
-      />
+      <GraphCanvas nodes={nodes} edges={edges} analysisId={analysisId} repositoryUrl={repositoryUrl} setRepositoryUrl={setRepositoryUrl} onAnalyze={handleAnalyze} analyzing={loading} />
     </main>
   );
 }

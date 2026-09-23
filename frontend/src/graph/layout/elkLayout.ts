@@ -1,6 +1,10 @@
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { Edge, Node } from "@xyflow/react";
 
+// ==================================================
+// GRAPH TYPES
+// ==================================================
+
 export interface GraphViewNode {
   id: string;
   label: string;
@@ -19,7 +23,7 @@ export interface GraphViewModel {
 }
 
 // ==================================================
-// ELK INSTANCE
+// ELK
 // ==================================================
 
 const elk = new ELK();
@@ -33,26 +37,39 @@ const NODE_WIDTH = 240;
 const NODE_HEIGHT = 52;
 
 // ==================================================
-// ELK SPACING
+// CONNECTED GRAPH SPACING
 // ==================================================
 
 const NODE_SPACING = 50;
 const LAYER_SPACING = 90;
 
-// ==================================================
-// COMPONENT SPACING
-// ==================================================
+const COMPONENT_PADDING = 50;
 
 const COMPONENT_GAP_X = 140;
 const COMPONENT_GAP_Y = 160;
 
-const COMPONENT_PADDING = 50;
-
-// ==================================================
-// GRAPH PACKING
-// ==================================================
-
 const MAX_GRAPH_WIDTH = 2200;
+
+// ==================================================
+// ISOLATED FILE SPACING
+// ==================================================
+
+const ISOLATED_GAP_X = 40;
+const ISOLATED_GAP_Y = 28;
+
+const ISOLATED_FOLDER_GAP = 90;
+
+const ISOLATED_MAX_WIDTH = 1900;
+
+// ==================================================
+// TYPES
+// ==================================================
+
+interface LayoutBlock {
+  nodes: Node[];
+  width: number;
+  height: number;
+}
 
 // ==================================================
 // MAIN
@@ -76,26 +93,43 @@ export async function createELKGraph(viewModel: GraphViewModel): Promise<{
   const components = findConnectedComponents(viewModel.nodes, viewModel.edges);
 
   // ------------------------------------------------
-  // 2. Layout every component independently
+  // 2. Separate connected components and isolated
+  // files.
+  //
+  // Isolated files are NOT passed through ELK.
+  //
+  // This is intentional.
+  //
+  // ELK is useful for dependency relationships.
+  // A file with no relationships does not need
+  // hierarchical layout.
   // ------------------------------------------------
 
-  const layouts = await Promise.all(
-    components.map(async (component) => {
+  const connectedComponents = components.filter((component) => component.length > 1);
+
+  const isolatedComponents = components.filter((component) => component.length === 1);
+
+  // ------------------------------------------------
+  // 3. Layout connected components independently
+  // ------------------------------------------------
+
+  const connectedLayouts = await Promise.all(
+    connectedComponents.map((component) => {
       const ids = new Set(component);
 
       const componentNodes = viewModel.nodes.filter((node) => ids.has(node.id));
 
       const componentEdges = viewModel.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target));
 
-      return layoutComponent(componentNodes, componentEdges);
+      return layoutConnectedComponent(componentNodes, componentEdges);
     }),
   );
 
   // ------------------------------------------------
-  // 3. Largest components first
+  // 4. Largest components first
   // ------------------------------------------------
 
-  layouts.sort((a, b) => {
+  connectedLayouts.sort((a, b) => {
     const areaA = a.width * a.height;
     const areaB = b.width * b.height;
 
@@ -103,13 +137,51 @@ export async function createELKGraph(viewModel: GraphViewModel): Promise<{
   });
 
   // ------------------------------------------------
-  // 4. Pack components
+  // 5. Pack connected components
   // ------------------------------------------------
 
-  const positionedNodes = packComponents(layouts);
+  const connectedNodes = packConnectedComponents(connectedLayouts);
 
   // ------------------------------------------------
-  // 5. Create React Flow edges
+  // 6. Calculate connected graph bounds
+  // ------------------------------------------------
+
+  const connectedBounds = getBounds(connectedNodes);
+
+  // ------------------------------------------------
+  // 7. Layout isolated files separately
+  //
+  // They are grouped by folder and placed in
+  // predictable grids.
+  // ------------------------------------------------
+
+  const isolatedNodes = layoutIsolatedFiles(isolatedComponents, viewModel.nodes);
+
+  // ------------------------------------------------
+  // 8. Place isolated region BELOW the connected
+  // dependency graph.
+  // ------------------------------------------------
+
+  const isolatedStartY = connectedNodes.length > 0 ? connectedBounds.maxY + 180 : 0;
+
+  const positionedIsolatedNodes = isolatedNodes.map((node) => ({
+    ...node,
+
+    position: {
+      x: node.position.x,
+
+      y: node.position.y + isolatedStartY,
+    },
+  }));
+
+  // ------------------------------------------------
+  // 9. Combine
+  // ------------------------------------------------
+
+  const nodes = [...connectedNodes, ...positionedIsolatedNodes];
+
+  // ------------------------------------------------
+  // 10. React Flow edges
   // ------------------------------------------------
 
   const edges: Edge[] = viewModel.edges.map((edge) => ({
@@ -125,72 +197,30 @@ export async function createELKGraph(viewModel: GraphViewModel): Promise<{
 
     style: {
       stroke: "#52525b",
+
       strokeWidth: 1.5,
+
       opacity: 0.7,
     },
   }));
 
   return {
-    nodes: positionedNodes,
-
+    nodes,
     edges,
   };
 }
 
 // ==================================================
-// LAYOUT ONE CONNECTED COMPONENT
+// CONNECTED COMPONENT
 // ==================================================
 
-async function layoutComponent(
-  componentNodes: GraphViewNode[],
-  componentEdges: GraphViewEdge[],
-): Promise<{
-  nodes: Node[];
-  width: number;
-  height: number;
-}> {
-  // ------------------------------------------------
-  // Isolated node
-  // ------------------------------------------------
-
-  if (componentNodes.length === 1) {
-    const node = componentNodes[0];
-
-    return {
-      nodes: [
-        {
-          id: node.id,
-
-          type: "file",
-
-          position: {
-            x: COMPONENT_PADDING,
-
-            y: COMPONENT_PADDING,
-          },
-
-          data: {
-            label: node.label,
-
-            isolated: true,
-          },
-
-          draggable: true,
-        },
-      ],
-
-      width: NODE_WIDTH + COMPONENT_PADDING * 2,
-
-      height: NODE_HEIGHT + COMPONENT_PADDING * 2,
-    };
-  }
-
+async function layoutConnectedComponent(componentNodes: GraphViewNode[], componentEdges: GraphViewEdge[]): Promise<LayoutBlock> {
   // ------------------------------------------------
   // Build ELK graph
   // ------------------------------------------------
 
   const graph = {
-    id: `component-${componentNodes[0].id}`,
+    id: `component-${componentNodes[0]?.id ?? "unknown"}`,
 
     layoutOptions: {
       // Layered layout is ideal for dependency graphs.
@@ -206,31 +236,27 @@ async function layoutComponent(
       //
       "elk.direction": "DOWN",
 
-      // Horizontal spacing between nodes.
+      // Nodes on the same layer.
       "elk.spacing.nodeNode": String(NODE_SPACING),
 
-      // Vertical spacing between layers.
+      // Distance between dependency layers.
       "elk.layered.spacing.nodeNodeBetweenLayers": String(LAYER_SPACING),
 
-      // Reduce edge crossings.
+      // Reduce crossings.
       "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
 
-      // Better node placement.
-      "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+      // Balanced node placement.
+      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
 
-      // Space between internal components.
-      "elk.spacing.componentComponent": "80",
+      // Balanced BK alignment.
+      "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
 
-      // Use orthogonal dependency paths.
-      "elk.edgeRouting": "ORTHOGONAL",
+      // Cycle handling.
+      "elk.layered.cycleBreaking.strategy": "GREEDY",
 
-      // Padding around component.
+      // Padding around the component.
       "elk.padding": `[top=${COMPONENT_PADDING},left=${COMPONENT_PADDING},bottom=${COMPONENT_PADDING},right=${COMPONENT_PADDING}]`,
     },
-
-    // ------------------------------------------------
-    // ELK nodes
-    // ------------------------------------------------
 
     children: componentNodes.map((node) => ({
       id: node.id,
@@ -239,10 +265,6 @@ async function layoutComponent(
 
       height: NODE_HEIGHT,
     })),
-
-    // ------------------------------------------------
-    // ELK edges
-    // ------------------------------------------------
 
     edges: componentEdges.map((edge) => ({
       id: edge.id,
@@ -281,6 +303,8 @@ async function layoutComponent(
         label: original?.label ?? elkNode.id,
 
         isolated: false,
+
+        componentKind: "connected",
       },
 
       draggable: true,
@@ -288,46 +312,39 @@ async function layoutComponent(
   });
 
   // ------------------------------------------------
-  // Calculate actual component bounds
+  // Normalize
   //
-  // Do not depend on result.width/result.height.
-  // We calculate the bounds from the actual
-  // React Flow node positions instead.
+  // ELK already gives useful coordinates, but
+  // normalization makes every component start from
+  // a predictable origin.
   // ------------------------------------------------
 
-  let maxX = 0;
-  let maxY = 0;
+  normalizeNodes(nodes);
 
-  for (const node of nodes) {
-    maxX = Math.max(maxX, node.position.x + NODE_WIDTH);
+  // ------------------------------------------------
+  // Calculate actual bounds
+  //
+  // Do NOT use result.width/result.height.
+  // ELK's TypeScript result type does not guarantee
+  // those properties.
+  // ------------------------------------------------
 
-    maxY = Math.max(maxY, node.position.y + NODE_HEIGHT);
-  }
-
-  const width = maxX + COMPONENT_PADDING;
-
-  const height = maxY + COMPONENT_PADDING;
+  const bounds = getBounds(nodes);
 
   return {
     nodes,
 
-    width,
+    width: bounds.maxX - bounds.minX + COMPONENT_PADDING,
 
-    height,
+    height: bounds.maxY - bounds.minY + COMPONENT_PADDING,
   };
 }
 
 // ==================================================
-// PACK COMPONENTS
+// PACK CONNECTED COMPONENTS
 // ==================================================
 
-function packComponents(
-  layouts: {
-    nodes: Node[];
-    width: number;
-    height: number;
-  }[],
-): Node[] {
+function packConnectedComponents(layouts: LayoutBlock[]): Node[] {
   if (layouts.length === 0) {
     return [];
   }
@@ -342,7 +359,7 @@ function packComponents(
 
   for (const layout of layouts) {
     // ------------------------------------------------
-    // Start a new row if component doesn't fit.
+    // Start another row if necessary.
     // ------------------------------------------------
 
     if (cursorX > 0 && cursorX + layout.width > MAX_GRAPH_WIDTH) {
@@ -354,7 +371,7 @@ function packComponents(
     }
 
     // ------------------------------------------------
-    // Place component nodes.
+    // Place nodes
     // ------------------------------------------------
 
     for (const node of layout.nodes) {
@@ -370,7 +387,7 @@ function packComponents(
     }
 
     // ------------------------------------------------
-    // Move packing cursor.
+    // Move cursor
     // ------------------------------------------------
 
     cursorX += layout.width + COMPONENT_GAP_X;
@@ -382,14 +399,259 @@ function packComponents(
 }
 
 // ==================================================
-// FIND WEAKLY CONNECTED COMPONENTS
+// ISOLATED FILES
+// ==================================================
+
+function layoutIsolatedFiles(isolatedComponents: string[][], allNodes: GraphViewNode[]): Node[] {
+  if (isolatedComponents.length === 0) {
+    return [];
+  }
+
+  // ------------------------------------------------
+  // Get isolated IDs
+  // ------------------------------------------------
+
+  const isolatedIds = new Set(isolatedComponents.flatMap((component) => component));
+
+  const isolatedFiles = allNodes.filter((node) => isolatedIds.has(node.id));
+
+  // ------------------------------------------------
+  // Group isolated files by folder
+  // ------------------------------------------------
+
+  const folders = new Map<string, GraphViewNode[]>();
+
+  for (const file of isolatedFiles) {
+    const folder = getFolder(file.id);
+
+    const existing = folders.get(folder);
+
+    if (existing) {
+      existing.push(file);
+    } else {
+      folders.set(folder, [file]);
+    }
+  }
+
+  // ------------------------------------------------
+  // Stable folder ordering
+  // ------------------------------------------------
+
+  const sortedFolders = [...folders.entries()].sort(([a], [b]) => a.localeCompare(b));
+
+  const result: Node[] = [];
+
+  let folderY = 0;
+
+  // ------------------------------------------------
+  // Layout each folder
+  // ------------------------------------------------
+
+  for (const [folder, files] of sortedFolders) {
+    const layout = layoutIsolatedFolder(folder, files);
+
+    for (const node of layout.nodes) {
+      result.push({
+        ...node,
+
+        position: {
+          x: node.position.x,
+
+          y: node.position.y + folderY,
+        },
+      });
+    }
+
+    folderY += layout.height + ISOLATED_FOLDER_GAP;
+  }
+
+  return result;
+}
+
+// ==================================================
+// ISOLATED FOLDER
+// ==================================================
+
+function layoutIsolatedFolder(folder: string, files: GraphViewNode[]): LayoutBlock {
+  const sortedFiles = [...files].sort((a, b) => a.label.localeCompare(b.label));
+
+  // ------------------------------------------------
+  // Adaptive number of columns
+  // ------------------------------------------------
+
+  const maxColumns = Math.max(1, Math.floor(ISOLATED_MAX_WIDTH / (NODE_WIDTH + ISOLATED_GAP_X)));
+
+  const columns = Math.min(maxColumns, getIsolatedColumnCount(sortedFiles.length));
+
+  const rows = Math.ceil(sortedFiles.length / columns);
+
+  const width = columns * NODE_WIDTH + (columns - 1) * ISOLATED_GAP_X;
+
+  const height = rows * NODE_HEIGHT + (rows - 1) * ISOLATED_GAP_Y;
+
+  const nodes: Node[] = sortedFiles.map((file, index) => {
+    const column = index % columns;
+
+    const row = Math.floor(index / columns);
+
+    return {
+      id: file.id,
+
+      type: "file",
+
+      position: {
+        x: column * (NODE_WIDTH + ISOLATED_GAP_X),
+
+        y: row * (NODE_HEIGHT + ISOLATED_GAP_Y),
+      },
+
+      data: {
+        label: file.label,
+
+        isolated: true,
+
+        componentKind: "isolated",
+
+        folder,
+      },
+
+      draggable: true,
+    };
+  });
+
+  return {
+    nodes,
+
+    width,
+
+    height,
+  };
+}
+
+// ==================================================
+// ISOLATED COLUMN COUNT
+// ==================================================
+
+function getIsolatedColumnCount(count: number): number {
+  if (count <= 2) {
+    return count;
+  }
+
+  if (count <= 6) {
+    return 3;
+  }
+
+  if (count <= 12) {
+    return 4;
+  }
+
+  if (count <= 30) {
+    return 6;
+  }
+
+  if (count <= 60) {
+    return 8;
+  }
+
+  return 10;
+}
+
+// ==================================================
+// FOLDER
+// ==================================================
+
+function getFolder(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+
+  const parts = normalized.split("/");
+
+  if (parts.length <= 1) {
+    return "root";
+  }
+
+  return parts.slice(0, -1).join("/");
+}
+
+// ==================================================
+// NORMALIZE
+// ==================================================
+
+function normalizeNodes(nodes: Node[]) {
+  if (nodes.length === 0) {
+    return;
+  }
+
+  let minX = Infinity;
+
+  let minY = Infinity;
+
+  for (const node of nodes) {
+    minX = Math.min(minX, node.position.x);
+
+    minY = Math.min(minY, node.position.y);
+  }
+
+  for (const node of nodes) {
+    node.position = {
+      x: node.position.x - minX + COMPONENT_PADDING,
+
+      y: node.position.y - minY + COMPONENT_PADDING,
+    };
+  }
+}
+
+// ==================================================
+// BOUNDS
+// ==================================================
+
+function getBounds(nodes: Node[]) {
+  if (nodes.length === 0) {
+    return {
+      minX: 0,
+      minY: 0,
+      maxX: 0,
+      maxY: 0,
+    };
+  }
+
+  let minX = Infinity;
+
+  let minY = Infinity;
+
+  let maxX = -Infinity;
+
+  let maxY = -Infinity;
+
+  for (const node of nodes) {
+    minX = Math.min(minX, node.position.x);
+
+    minY = Math.min(minY, node.position.y);
+
+    maxX = Math.max(maxX, node.position.x + NODE_WIDTH);
+
+    maxY = Math.max(maxY, node.position.y + NODE_HEIGHT);
+  }
+
+  return {
+    minX,
+
+    minY,
+
+    maxX,
+
+    maxY,
+  };
+}
+
+// ==================================================
+// WEAKLY CONNECTED COMPONENTS
 // ==================================================
 
 function findConnectedComponents(nodes: GraphViewNode[], edges: GraphViewEdge[]): string[][] {
   const adjacency = new Map<string, Set<string>>();
 
   // ------------------------------------------------
-  // Initialize adjacency map.
+  // Initialize
   // ------------------------------------------------
 
   for (const node of nodes) {
@@ -397,13 +659,8 @@ function findConnectedComponents(nodes: GraphViewNode[], edges: GraphViewEdge[])
   }
 
   // ------------------------------------------------
-  // Treat dependency graph as UNDIRECTED
+  // Treat dependency graph as undirected
   // for component detection.
-  //
-  // A -> B
-  //
-  // means A and B belong to the same
-  // connected component.
   // ------------------------------------------------
 
   for (const edge of edges) {
