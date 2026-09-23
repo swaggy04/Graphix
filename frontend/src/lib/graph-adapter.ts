@@ -67,8 +67,8 @@ export function createReactFlowGraph(viewModel: GraphViewModel): {
   const visited = new Set<string>();
 
   // These control the tree spacing.
-  const horizontalSpacing = 270;
-  const verticalSpacing = 170;
+  const horizontalSpacing = 240;
+  const verticalSpacing = 160;
 
   let nextX = 0;
 
@@ -164,13 +164,8 @@ export function createReactFlowGraph(viewModel: GraphViewModel): {
 
   const edges: Edge[] = viewModel.edges.map((edge) => ({
     id: edge.id,
-
     source: edge.source,
     target: edge.target,
-
-    sourceHandle: undefined,
-    targetHandle: undefined,
-
     type: "smoothstep",
 
     style: {
@@ -178,7 +173,6 @@ export function createReactFlowGraph(viewModel: GraphViewModel): {
       strokeWidth: 1.5,
     },
   }));
-
   return {
     nodes,
     edges,
