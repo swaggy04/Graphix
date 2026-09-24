@@ -12,6 +12,7 @@ export default function Home() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
+
   const [stats, setStats] = useState<AnalyzeResponse["stats"] | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -29,19 +30,15 @@ export default function Home() {
       setLoading(true);
       setError(null);
 
-      // Clear previous graph
       setNodes([]);
       setEdges([]);
       setAnalysisId(null);
       setStats(null);
 
-      // 1. Analyze repository
       const graphViewModel = await analyzeRepository(url);
 
-      // 2. Run ELK layout
       const graph = await createReactFlowGraph(graphViewModel);
 
-      // 3. Update graph
       setNodes(graph.nodes);
       setEdges(graph.edges);
       setAnalysisId(graphViewModel.analysisId);
