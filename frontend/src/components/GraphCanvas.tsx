@@ -1,18 +1,17 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+
 import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, ReactFlowProvider, type Edge, type Node } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
 
 import FileNode from "./FileNode";
-import type { AnalyzeResponse } from "../lib/api";
 
 interface GraphCanvasProps {
   nodes: Node[];
   edges: Edge[];
   analysisId: string | null;
-  stats: AnalyzeResponse["stats"] | null;
 
   repositoryUrl: string;
   setRepositoryUrl: React.Dispatch<React.SetStateAction<string>>;
@@ -51,11 +50,23 @@ const nodeTypes = {
   file: FileNode,
 };
 
-export default function GraphCanvas({ nodes, edges, analysisId, stats, repositoryUrl, setRepositoryUrl, onAnalyze, analyzing }: GraphCanvasProps) {
+export default function GraphCanvas(props: GraphCanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <GraphCanvasInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function GraphCanvasInner({ nodes, edges, analysisId, repositoryUrl, setRepositoryUrl, onAnalyze, analyzing }: GraphCanvasProps) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+
   const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
+
   const [loading, setLoading] = useState(false);
-  const [showIsolated, setShowIsolated] = useState(false);
+
+  const [showIsolated, setShowIsolated] = useState(true);
+
   const [searchQuery, setSearchQuery] = useState("");
 
   // ==================================================
@@ -65,6 +76,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   const isolatedCount = useMemo(() => {
     return nodes.filter((node) => {
       const data = node.data as FileNodeData | undefined;
+
       return data?.isolated === true;
     }).length;
   }, [nodes]);
@@ -76,22 +88,50 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   // ==================================================
 
   const visibleNodes = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase();
+    if (showIsolated) {
+      return nodes;
+    }
 
     return nodes.filter((node) => {
       const data = node.data as FileNodeData | undefined;
-      const matchesVisibility = showIsolated || data?.isolated !== true;
-      const matchesSearch = !normalizedQuery || node.id.toLowerCase().includes(normalizedQuery);
 
-      return matchesVisibility && matchesSearch;
+      return data?.isolated !== true;
     });
-  }, [nodes, showIsolated, searchQuery]);
+  }, [nodes, showIsolated]);
 
-  const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
+  const visibleNodeIds = useMemo(() => {
+    return new Set(visibleNodes.map((node) => node.id));
+  }, [visibleNodes]);
 
   const visibleEdges = useMemo(() => {
+    if (showIsolated) {
+      return edges;
+    }
+
     return edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target));
-  }, [edges, visibleNodeIds]);
+  }, [edges, showIsolated, visibleNodeIds]);
+
+  // ==================================================
+  // SEARCH
+  // ==================================================
+
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    if (!query) {
+      return [];
+    }
+
+    return nodes
+      .filter((node) => {
+        const data = node.data as FileNodeData | undefined;
+
+        const label = String(data?.label ?? node.id).toLowerCase();
+
+        return label.includes(query) || node.id.toLowerCase().includes(query);
+      })
+      .slice(0, 8);
+  }, [nodes, searchQuery]);
 
   // ==================================================
   // HIGHLIGHTED RELATIONSHIPS
@@ -110,21 +150,21 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   // ==================================================
 
   const displayNodes = useMemo(() => {
-    if (!selectedNode || !fileAnalysis) {
-      return visibleNodes.map((node) => ({
-        ...node,
-
-        data: {
-          ...node.data,
-          selected: false,
-          highlighted: false,
-          dimmed: false,
-        },
-      }));
-    }
-
     return visibleNodes.map((node) => {
+      if (!selectedNode || !fileAnalysis) {
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            selected: false,
+            highlighted: false,
+            dimmed: false,
+          },
+        };
+      }
+
       const selected = node.id === selectedNode.id;
+
       const highlighted = highlightedNodeIds.has(node.id);
 
       return {
@@ -132,13 +172,17 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         data: {
           ...node.data,
+
           selected,
+
           highlighted,
+
           dimmed: !highlighted,
         },
 
         style: {
           ...node.style,
+
           zIndex: selected ? 20 : highlighted ? 10 : 1,
         },
       };
@@ -150,22 +194,25 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   // ==================================================
 
   const displayEdges = useMemo(() => {
-    if (!selectedNode) {
-      return visibleEdges.map((edge) => ({
-        ...edge,
-
-        animated: false,
-
-        style: {
-          ...edge.style,
-          stroke: "#3f3f46",
-          strokeWidth: 1.2,
-          opacity: 0.55,
-        },
-      }));
-    }
-
     return visibleEdges.map((edge) => {
+      if (!selectedNode) {
+        return {
+          ...edge,
+
+          animated: false,
+
+          style: {
+            ...edge.style,
+
+            stroke: "#3f3f46",
+
+            strokeWidth: 1.2,
+
+            opacity: 0.55,
+          },
+        };
+      }
+
       const connected = edge.source === selectedNode.id || edge.target === selectedNode.id;
 
       return {
@@ -175,9 +222,12 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         style: {
           ...edge.style,
+
           stroke: connected ? "#a1a1aa" : "#27272a",
+
           strokeWidth: connected ? 2 : 1,
-          opacity: connected ? 0.95 : 0.35,
+
+          opacity: connected ? 0.95 : 0.3,
         },
       };
     });
@@ -194,8 +244,12 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
       }
 
       setSelectedNode(node);
+
       setFileAnalysis(null);
+
       setLoading(true);
+
+      setSearchQuery("");
 
       try {
         const encodedFilePath = encodeURIComponent(node.id);
@@ -219,11 +273,25 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   );
 
   // ==================================================
+  // SEARCH RESULT CLICK
+  // ==================================================
+
+  const handleSearchResultClick = useCallback(
+    (node: Node) => {
+      setSearchQuery("");
+
+      void handleNodeClick({} as React.MouseEvent, node);
+    },
+    [handleNodeClick],
+  );
+
+  // ==================================================
   // PANE CLICK
   // ==================================================
 
   const handlePaneClick = useCallback(() => {
     setSelectedNode(null);
+
     setFileAnalysis(null);
   }, []);
 
@@ -240,104 +308,143 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   }, [analyzing, onAnalyze]);
 
   return (
-    <ReactFlowProvider>
-      <div className="relative h-full w-full overflow-hidden bg-[#09090b]">
-        <ReactFlow
-          nodes={displayNodes}
-          edges={displayEdges}
-          nodeTypes={nodeTypes}
-          fitView
-          fitViewOptions={{
-            padding: 0.16,
-            maxZoom: 1.1,
-            minZoom: 0.08,
-          }}
-          minZoom={0.04}
-          maxZoom={2}
-          onNodeClick={handleNodeClick}
-          onPaneClick={handlePaneClick}
-          defaultEdgeOptions={{
-            type: "smoothstep",
-          }}
-          proOptions={{
-            hideAttribution: false,
-          }}
-        >
-          {/* ==================================================
-              BACKGROUND
-          ================================================== */}
+    <div className="relative h-full w-full overflow-hidden bg-[#09090b]">
+      <ReactFlow
+        nodes={displayNodes}
+        edges={displayEdges}
+        nodeTypes={nodeTypes}
+        fitView
+        fitViewOptions={{
+          padding: 0.16,
+          maxZoom: 1.1,
+          minZoom: 0.08,
+        }}
+        minZoom={0.04}
+        maxZoom={2}
+        onNodeClick={handleNodeClick}
+        onPaneClick={handlePaneClick}
+        defaultEdgeOptions={{
+          type: "smoothstep",
+        }}
+        proOptions={{
+          hideAttribution: false,
+        }}
+      >
+        {/* ==================================================
+            BACKGROUND
+        ================================================== */}
 
-          <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="#242428" />
+        <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="#242428" />
 
-          {/* ==================================================
-              TOP HEADER
-          ================================================== */}
+        {/* ==================================================
+            TOP HEADER
+        ================================================== */}
 
-          <Panel position="top-center">
-            <div
-              className="
-                flex
-                items-center
-                gap-2
-                rounded-2xl
-                border
-                border-zinc-800/80
-                bg-[#111114]/90
-                p-1.5
-                shadow-[0_12px_40px_rgba(0,0,0,0.35)]
-                backdrop-blur-xl
-              "
-            >
-              {/* Brand */}
+        <Panel position="top-center">
+          <div
+            className="
+              flex
+              items-center
+              gap-2
+              rounded-2xl
+              border
+              border-zinc-800/80
+              bg-[#111114]/90
+              p-1.5
+              shadow-[0_12px_40px_rgba(0,0,0,0.35)]
+              backdrop-blur-xl
+            "
+          >
+            {/* Brand */}
 
-              <div
-                className="
-                  hidden
-                  items-center
-                  gap-2
-                  px-3
-                  sm:flex
-                "
-              >
-                <div
-                  className="
-                    flex
-                    h-7
-                    w-7
-                    items-center
-                    justify-center
-                    rounded-lg
-                    border
-                    border-zinc-700
-                    bg-zinc-900
-                    text-xs
-                    font-semibold
-                    text-zinc-200
-                  "
-                >
-                  G
-                </div>
-
-                <span
-                  className="
-                    text-sm
-                    font-semibold
-                    tracking-tight
-                    text-zinc-200
-                  "
-                >
-                  Grapix
-                </span>
-              </div>
-
-              <div className="h-5 w-px bg-zinc-800" />
-
-              {/* Repository input */}
-
+            <div className="hidden items-center gap-2 px-3 sm:flex">
               <div
                 className="
                   flex
-                  w-[min(55vw,480px)]
+                  h-7
+                  w-7
+                  items-center
+                  justify-center
+                  rounded-lg
+                  border
+                  border-zinc-700
+                  bg-zinc-900
+                  text-xs
+                  font-semibold
+                  text-zinc-200
+                "
+              >
+                G
+              </div>
+
+              <span
+                className="
+                  text-sm
+                  font-semibold
+                  tracking-tight
+                  text-zinc-200
+                "
+              >
+                Grapix
+              </span>
+            </div>
+
+            <div className="h-5 w-px bg-zinc-800" />
+
+            {/* Repository input */}
+
+            <div
+              className="
+                flex
+                w-[min(40vw,480px)]
+                items-center
+                gap-2
+                rounded-xl
+                border
+                border-zinc-800
+                bg-[#09090b]
+                px-3
+              "
+            >
+              <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 shrink-0 text-zinc-600">
+                <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" strokeWidth="1.5" />
+
+                <path d="m8 9 2.5 3L8 15M12.5 15H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+
+              <input
+                type="text"
+                value={repositoryUrl}
+                onChange={(event) => setRepositoryUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !analyzing) {
+                    void handleAnalyze();
+                  }
+                }}
+                placeholder="github.com/owner/repository"
+                disabled={analyzing}
+                className="
+                  h-9
+                  min-w-0
+                  flex-1
+                  bg-transparent
+                  text-xs
+                  text-zinc-200
+                  outline-none
+                  placeholder:text-zinc-600
+                  disabled:opacity-50
+                "
+              />
+            </div>
+
+            {/* File search */}
+
+            <div className="relative hidden md:block">
+              <div
+                className="
+                  flex
+                  h-9
+                  w-[220px]
                   items-center
                   gap-2
                   rounded-xl
@@ -347,119 +454,111 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                   px-3
                 "
               >
-                <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 shrink-0 text-zinc-600">
-                  <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" strokeWidth="1.5" />
+                <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 shrink-0 text-zinc-600">
+                  <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.5" />
 
-                  <path d="m8 9 2.5 3L8 15M12.5 15H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="m16 16 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
 
                 <input
                   type="text"
-                  value={repositoryUrl}
-                  onChange={(event) => setRepositoryUrl(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !analyzing) {
-                      void handleAnalyze();
-                    }
-                  }}
-                  placeholder="github.com/owner/repository"
-                  disabled={analyzing}
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Find a file..."
                   className="
-                    h-9
-                    min-w-0
-                    flex-1
+                    w-full
                     bg-transparent
                     text-xs
                     text-zinc-200
                     outline-none
                     placeholder:text-zinc-600
-                    disabled:opacity-50
                   "
                 />
               </div>
 
-              {/* Graph search */}
+              {searchResults.length > 0 && (
+                <div
+                  className="
+                    absolute
+                    left-0
+                    right-0
+                    top-11
+                    z-50
+                    overflow-hidden
+                    rounded-xl
+                    border
+                    border-zinc-800
+                    bg-[#111114]
+                    shadow-[0_20px_50px_rgba(0,0,0,0.5)]
+                  "
+                >
+                  {searchResults.map((node) => {
+                    const data = node.data as FileNodeData | undefined;
 
-              {nodes.length > 0 && (
-                <div className="hidden w-[min(18vw,190px)] items-center gap-2 rounded-xl border border-zinc-800 bg-[#09090b] px-3 lg:flex">
-                  <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 shrink-0 text-zinc-600">
-                    <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.5" />
-                    <path d="m16 16 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                  </svg>
+                    const label = String(data?.label ?? node.id);
 
-                  <input
-                    type="search"
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Find a file..."
-                    className="h-9 min-w-0 flex-1 bg-transparent text-xs text-zinc-200 outline-none placeholder:text-zinc-600"
-                  />
+                    return (
+                      <button
+                        key={node.id}
+                        type="button"
+                        onClick={() => handleSearchResultClick(node)}
+                        className="
+                          flex
+                          w-full
+                          flex-col
+                          items-start
+                          border-b
+                          border-zinc-800/60
+                          px-3
+                          py-2.5
+                          text-left
+                          transition
+                          last:border-b-0
+                          hover:bg-zinc-900
+                        "
+                      >
+                        <span className="w-full truncate text-xs text-zinc-300">{getFileName(label)}</span>
+
+                        <span className="mt-0.5 w-full truncate text-[9px] text-zinc-600">{node.id}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
-
-              {/* Analyze */}
-
-              <button
-                onClick={() => void handleAnalyze()}
-                disabled={analyzing}
-                className="
-                  h-9
-                  rounded-xl
-                  bg-zinc-100
-                  px-4
-                  text-xs
-                  font-semibold
-                  text-zinc-950
-                  transition
-                  hover:bg-white
-                  active:scale-[0.98]
-                  disabled:cursor-not-allowed
-                  disabled:opacity-50
-                "
-              >
-                {analyzing ? "Analyzing..." : "Analyze"}
-              </button>
             </div>
-          </Panel>
 
-          {/* ==================================================
-              GRAPH STATUS
-          ================================================== */}
+            {/* Analyze */}
 
-          {nodes.length > 0 && (
-            <Panel position="top-left">
-              <div className="space-y-2">
-                <div className="flex items-center gap-1 rounded-xl border border-zinc-800/80 bg-[#111114]/90 p-1 shadow-lg backdrop-blur-xl">
-                  <Stat label="Files" value={nodes.length} />
-                  <div className="h-5 w-px bg-zinc-800" />
-                  <Stat label="Connected" value={connectedCount} />
-                  <div className="h-5 w-px bg-zinc-800" />
-                  <Stat label="Isolated" value={isolatedCount} />
-                </div>
+            <button
+              onClick={() => void handleAnalyze()}
+              disabled={analyzing}
+              className="
+                h-9
+                rounded-xl
+                bg-zinc-100
+                px-4
+                text-xs
+                font-semibold
+                text-zinc-950
+                transition
+                hover:bg-white
+                active:scale-[0.98]
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+              "
+            >
+              {analyzing ? "Analyzing..." : "Analyze"}
+            </button>
+          </div>
+        </Panel>
 
-                {stats && (
-                  <div className="flex items-center gap-2 rounded-lg border border-zinc-800/70 bg-[#111114]/75 px-3 py-2 text-[10px] text-zinc-500 shadow-lg backdrop-blur-xl">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
-                    <span>{stats.resolvedImports.toLocaleString()} resolved imports</span>
-                    {stats.unresolvedImports > 0 && <span className="text-amber-400/80">{stats.unresolvedImports.toLocaleString()} unresolved</span>}
-                  </div>
-                )}
+        {/* ==================================================
+            GRAPH STATUS
+        ================================================== */}
 
-                {searchQuery.trim() && (
-                  <div className="text-[10px] text-zinc-600">
-                    Showing {visibleNodes.length.toLocaleString()} matching files
-                  </div>
-                )}
-              </div>
-            </Panel>
-          )}
-
-          {/* ==================================================
-              VIEW SWITCHER
-          ================================================== */}
-
-          {nodes.length > 0 && isolatedCount > 0 && (
-            <Panel position="bottom-center">
+        {nodes.length > 0 && (
+          <Panel position="top-left">
+            <div className="flex flex-col gap-2">
               <div
                 className="
                   flex
@@ -468,69 +567,115 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                   rounded-xl
                   border
                   border-zinc-800/80
-                  bg-[#111114]/90
+                  bg-[#111114]/85
                   p-1
-                  shadow-xl
+                  shadow-lg
                   backdrop-blur-xl
                 "
               >
-                <span className="px-2 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-600">View</span>
+                <Stat label="Files" value={nodes.length} />
 
-                <ViewButton active={!showIsolated} onClick={() => setShowIsolated(false)}>
-                  Connected
-                </ViewButton>
+                <div className="h-5 w-px bg-zinc-800" />
 
-                <ViewButton active={showIsolated} onClick={() => setShowIsolated(true)}>
-                  All files
-                </ViewButton>
+                <Stat label="Connected" value={connectedCount} />
+
+                <div className="h-5 w-px bg-zinc-800" />
+
+                <Stat label="Isolated" value={isolatedCount} />
               </div>
-            </Panel>
-          )}
 
-          {nodes.length > 0 && (
-            <Panel position="bottom-left" className="!bottom-32 !left-4">
-              <div className="flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-[#111114]/85 px-3 py-2 text-[10px] text-zinc-500 shadow-lg backdrop-blur-xl">
-                <LegendDot color="bg-blue-400" label="TypeScript" />
-                <LegendDot color="bg-yellow-400" label="JavaScript" />
-                <LegendDot color="bg-zinc-500" label="Isolated" />
+              <div
+                className="
+                  flex
+                  items-center
+                  gap-2
+                  rounded-xl
+                  border
+                  border-zinc-800/80
+                  bg-[#111114]/85
+                  px-3
+                  py-2
+                  text-[10px]
+                  shadow-lg
+                  backdrop-blur-xl
+                "
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+
+                <span className="text-zinc-500">{getResolvedImportCount(nodes)} resolved imports</span>
+
+                <span className="text-yellow-500">{getUnresolvedImportCount(nodes)} unresolved</span>
               </div>
-            </Panel>
-          )}
+            </div>
+          </Panel>
+        )}
 
-          {/* ==================================================
-              CONTROLS
-          ================================================== */}
+        {/* ==================================================
+            VIEW SWITCHER
+        ================================================== */}
 
-          <Controls position="bottom-left" showInteractive={false} className="grapix-controls" />
+        {nodes.length > 0 && isolatedCount > 0 && (
+          <Panel position="bottom-center">
+            <div
+              className="
+                flex
+                items-center
+                gap-1
+                rounded-xl
+                border
+                border-zinc-800/80
+                bg-[#111114]/90
+                p-1
+                shadow-xl
+                backdrop-blur-xl
+              "
+            >
+              <span className="px-2 text-[10px] uppercase tracking-wider text-zinc-700">View</span>
 
-          {/* ==================================================
-              MINIMAP
-          ================================================== */}
+              <ViewButton active={!showIsolated} onClick={() => setShowIsolated(false)}>
+                Connected
+              </ViewButton>
 
-          <MiniMap
-            position="bottom-right"
-            pannable
-            zoomable
-            className="grapix-minimap"
-            bgColor="#111114"
-            maskColor="rgba(9, 9, 11, 0.72)"
-            nodeColor="#52525b"
-            nodeStrokeColor="#71717a"
-            nodeStrokeWidth={1}
-          />
+              <ViewButton active={showIsolated} onClick={() => setShowIsolated(true)}>
+                All files
+              </ViewButton>
+            </div>
+          </Panel>
+        )}
 
-          {/* ==================================================
-              FILE INSPECTOR
-          ================================================== */}
+        {/* ==================================================
+            CONTROLS
+        ================================================== */}
 
-          {selectedNode && (
-            <Panel position="top-right">
-              <FileInspector selectedNode={selectedNode} fileAnalysis={fileAnalysis} loading={loading} onClose={handlePaneClick} />
-            </Panel>
-          )}
-        </ReactFlow>
-      </div>
-    </ReactFlowProvider>
+        <Controls position="bottom-left" showInteractive={false} className="grapix-controls" />
+
+        {/* ==================================================
+            MINIMAP
+        ================================================== */}
+
+        <MiniMap
+          position="bottom-right"
+          pannable
+          zoomable
+          className="grapix-minimap"
+          bgColor="#111114"
+          maskColor="rgba(9, 9, 11, 0.72)"
+          nodeColor="#52525b"
+          nodeStrokeColor="#71717a"
+          nodeStrokeWidth={1}
+        />
+
+        {/* ==================================================
+            FILE INSPECTOR
+        ================================================== */}
+
+        {selectedNode && (
+          <Panel position="top-right">
+            <FileInspector selectedNode={selectedNode} fileAnalysis={fileAnalysis} loading={loading} onClose={handlePaneClick} />
+          </Panel>
+        )}
+      </ReactFlow>
+    </div>
   );
 }
 
@@ -555,6 +700,7 @@ function Stat({ label, value }: { label: string; value: number }) {
 function ViewButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`
         rounded-lg
@@ -569,15 +715,6 @@ function ViewButton({ active, onClick, children }: { active: boolean; onClick: (
     >
       {children}
     </button>
-  );
-}
-
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5 whitespace-nowrap">
-      <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
-      {label}
-    </span>
   );
 }
 
@@ -602,14 +739,7 @@ function FileInspector({ selectedNode, fileAnalysis, loading, onClose }: { selec
     >
       {/* Header */}
 
-      <div
-        className="
-          border-b
-          border-zinc-800/80
-          px-4
-          py-3.5
-        "
-      >
+      <div className="border-b border-zinc-800/80 px-4 py-3.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div
@@ -625,32 +755,13 @@ function FileInspector({ selectedNode, fileAnalysis, loading, onClose }: { selec
               File inspector
             </div>
 
-            <div
-              className="
-                break-all
-                text-sm
-                font-medium
-                leading-5
-                text-zinc-100
-              "
-            >
-              {getFileName(selectedNode.id)}
-            </div>
+            <div className="break-all text-sm font-medium leading-5 text-zinc-100">{getFileName(selectedNode.id)}</div>
 
-            <div
-              className="
-                mt-1
-                break-all
-                text-[10px]
-                leading-4
-                text-zinc-600
-              "
-            >
-              {selectedNode.id}
-            </div>
+            <div className="mt-1 break-all text-[10px] leading-4 text-zinc-600">{selectedNode.id}</div>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close inspector"
             className="
@@ -686,13 +797,7 @@ function FileInspector({ selectedNode, fileAnalysis, loading, onClose }: { selec
       {/* Analysis */}
 
       {fileAnalysis && !loading && (
-        <div
-          className="
-            max-h-[calc(100vh-180px)]
-            overflow-y-auto
-            grapix-inspector-scroll
-          "
-        >
+        <div className="max-h-[calc(100vh-180px)] overflow-y-auto">
           <AnalysisSection title="Dependencies" direct={fileAnalysis.dependencies.direct} transitive={fileAnalysis.dependencies.transitive} />
 
           <AnalysisSection title="Dependents" direct={fileAnalysis.dependents.direct} transitive={fileAnalysis.dependents.transitive} />
@@ -727,6 +832,10 @@ function FileInspector({ selectedNode, fileAnalysis, loading, onClose }: { selec
           </div>
         </div>
       )}
+
+      {/* Empty state */}
+
+      {!loading && !fileAnalysis && <div className="px-4 py-8 text-xs text-zinc-600">Select a file to inspect its dependency relationships.</div>}
     </aside>
   );
 }
@@ -830,4 +939,28 @@ function getFileName(path: string) {
   const normalized = path.replace(/\\/g, "/");
 
   return normalized.split("/").pop() ?? path;
+}
+
+// ==================================================
+// OPTIONAL GRAPH STATS
+// ==================================================
+
+function getResolvedImportCount(nodes: Node[]) {
+  return nodes.reduce((total, node) => {
+    const data = node.data as Record<string, unknown>;
+
+    const value = typeof data.resolvedImports === "number" ? data.resolvedImports : 0;
+
+    return total + value;
+  }, 0);
+}
+
+function getUnresolvedImportCount(nodes: Node[]) {
+  return nodes.reduce((total, node) => {
+    const data = node.data as Record<string, unknown>;
+
+    const value = typeof data.unresolvedImports === "number" ? data.unresolvedImports : 0;
+
+    return total + value;
+  }, 0);
 }
