@@ -174,6 +174,7 @@ export default function FileNode({ data }: NodeProps<FileNodeType>) {
 
         hover:border-zinc-600
         hover:bg-[#18181b]
+        hover:shadow-[0_10px_30px_rgba(0,0,0,0.22)]
       `}
     >
       {/* ==================================================

@@ -5,13 +5,14 @@ import { ReactFlowProvider, type Edge, type Node } from "@xyflow/react";
 
 import GraphCanvas from "../components/GraphCanvas";
 import { createReactFlowGraph } from "../lib/graph-adapter";
-import { analyzeRepository } from "../lib/api";
+import { analyzeRepository, type AnalyzeResponse } from "../lib/api";
 
 export default function Home() {
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
+  const [stats, setStats] = useState<AnalyzeResponse["stats"] | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +33,7 @@ export default function Home() {
       setNodes([]);
       setEdges([]);
       setAnalysisId(null);
+      setStats(null);
 
       // 1. Analyze repository
       const graphViewModel = await analyzeRepository(url);
@@ -43,6 +45,7 @@ export default function Home() {
       setNodes(graph.nodes);
       setEdges(graph.edges);
       setAnalysisId(graphViewModel.analysisId);
+      setStats(graphViewModel.stats);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to analyze repository");
     } finally {
@@ -63,7 +66,16 @@ export default function Home() {
       )}
 
       <ReactFlowProvider>
-        <GraphCanvas nodes={nodes} edges={edges} analysisId={analysisId} repositoryUrl={repositoryUrl} setRepositoryUrl={setRepositoryUrl} onAnalyze={handleAnalyze} analyzing={loading} />
+        <GraphCanvas
+          nodes={nodes}
+          edges={edges}
+          analysisId={analysisId}
+          stats={stats}
+          repositoryUrl={repositoryUrl}
+          setRepositoryUrl={setRepositoryUrl}
+          onAnalyze={handleAnalyze}
+          analyzing={loading}
+        />
       </ReactFlowProvider>
     </main>
   );

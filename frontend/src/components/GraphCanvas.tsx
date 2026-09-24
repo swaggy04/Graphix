@@ -6,11 +6,13 @@ import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, Rea
 import "@xyflow/react/dist/style.css";
 
 import FileNode from "./FileNode";
+import type { AnalyzeResponse } from "../lib/api";
 
 interface GraphCanvasProps {
   nodes: Node[];
   edges: Edge[];
   analysisId: string | null;
+  stats: AnalyzeResponse["stats"] | null;
 
   repositoryUrl: string;
   setRepositoryUrl: React.Dispatch<React.SetStateAction<string>>;
@@ -49,11 +51,12 @@ const nodeTypes = {
   file: FileNode,
 };
 
-export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, setRepositoryUrl, onAnalyze, analyzing }: GraphCanvasProps) {
+export default function GraphCanvas({ nodes, edges, analysisId, stats, repositoryUrl, setRepositoryUrl, onAnalyze, analyzing }: GraphCanvasProps) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showIsolated, setShowIsolated] = useState(true);
+  const [showIsolated, setShowIsolated] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // ==================================================
   // REPOSITORY STATS
@@ -73,25 +76,22 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
   // ==================================================
 
   const visibleNodes = useMemo(() => {
-    if (showIsolated) {
-      return nodes;
-    }
+    const normalizedQuery = searchQuery.trim().toLowerCase();
 
     return nodes.filter((node) => {
       const data = node.data as FileNodeData | undefined;
-      return data?.isolated !== true;
+      const matchesVisibility = showIsolated || data?.isolated !== true;
+      const matchesSearch = !normalizedQuery || node.id.toLowerCase().includes(normalizedQuery);
+
+      return matchesVisibility && matchesSearch;
     });
-  }, [nodes, showIsolated]);
+  }, [nodes, showIsolated, searchQuery]);
 
   const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
 
   const visibleEdges = useMemo(() => {
-    if (showIsolated) {
-      return edges;
-    }
-
     return edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target));
-  }, [edges, showIsolated, visibleNodeIds]);
+  }, [edges, visibleNodeIds]);
 
   // ==================================================
   // HIGHLIGHTED RELATIONSHIPS
@@ -378,6 +378,25 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
                 />
               </div>
 
+              {/* Graph search */}
+
+              {nodes.length > 0 && (
+                <div className="hidden w-[min(18vw,190px)] items-center gap-2 rounded-xl border border-zinc-800 bg-[#09090b] px-3 lg:flex">
+                  <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 shrink-0 text-zinc-600">
+                    <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="m16 16 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="Find a file..."
+                    className="h-9 min-w-0 flex-1 bg-transparent text-xs text-zinc-200 outline-none placeholder:text-zinc-600"
+                  />
+                </div>
+              )}
+
               {/* Analyze */}
 
               <button
@@ -409,29 +428,28 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
 
           {nodes.length > 0 && (
             <Panel position="top-left">
-              <div
-                className="
-                  flex
-                  items-center
-                  gap-1
-                  rounded-xl
-                  border
-                  border-zinc-800/80
-                  bg-[#111114]/85
-                  p-1
-                  shadow-lg
-                  backdrop-blur-xl
-                "
-              >
-                <Stat label="Files" value={nodes.length} />
+              <div className="space-y-2">
+                <div className="flex items-center gap-1 rounded-xl border border-zinc-800/80 bg-[#111114]/90 p-1 shadow-lg backdrop-blur-xl">
+                  <Stat label="Files" value={nodes.length} />
+                  <div className="h-5 w-px bg-zinc-800" />
+                  <Stat label="Connected" value={connectedCount} />
+                  <div className="h-5 w-px bg-zinc-800" />
+                  <Stat label="Isolated" value={isolatedCount} />
+                </div>
 
-                <div className="h-5 w-px bg-zinc-800" />
+                {stats && (
+                  <div className="flex items-center gap-2 rounded-lg border border-zinc-800/70 bg-[#111114]/75 px-3 py-2 text-[10px] text-zinc-500 shadow-lg backdrop-blur-xl">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
+                    <span>{stats.resolvedImports.toLocaleString()} resolved imports</span>
+                    {stats.unresolvedImports > 0 && <span className="text-amber-400/80">{stats.unresolvedImports.toLocaleString()} unresolved</span>}
+                  </div>
+                )}
 
-                <Stat label="Connected" value={connectedCount} />
-
-                <div className="h-5 w-px bg-zinc-800" />
-
-                <Stat label="Isolated" value={isolatedCount} />
+                {searchQuery.trim() && (
+                  <div className="text-[10px] text-zinc-600">
+                    Showing {visibleNodes.length.toLocaleString()} matching files
+                  </div>
+                )}
               </div>
             </Panel>
           )}
@@ -456,6 +474,8 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
                   backdrop-blur-xl
                 "
               >
+                <span className="px-2 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-600">View</span>
+
                 <ViewButton active={!showIsolated} onClick={() => setShowIsolated(false)}>
                   Connected
                 </ViewButton>
@@ -463,6 +483,16 @@ export default function GraphCanvas({ nodes, edges, analysisId, repositoryUrl, s
                 <ViewButton active={showIsolated} onClick={() => setShowIsolated(true)}>
                   All files
                 </ViewButton>
+              </div>
+            </Panel>
+          )}
+
+          {nodes.length > 0 && (
+            <Panel position="bottom-left" className="!bottom-16">
+              <div className="flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-[#111114]/85 px-3 py-2 text-[10px] text-zinc-500 shadow-lg backdrop-blur-xl">
+                <LegendDot color="bg-blue-400" label="TypeScript" />
+                <LegendDot color="bg-yellow-400" label="JavaScript" />
+                <LegendDot color="bg-zinc-500" label="Isolated" />
               </div>
             </Panel>
           )}
@@ -539,6 +569,15 @@ function ViewButton({ active, onClick, children }: { active: boolean; onClick: (
     >
       {children}
     </button>
+  );
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5 whitespace-nowrap">
+      <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
+      {label}
+    </span>
   );
 }
 

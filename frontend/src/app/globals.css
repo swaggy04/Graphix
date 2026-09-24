@@ -29,6 +29,12 @@ body {
     color: #f4f4f5;
 }
 
+.react-flow {
+    background:
+        radial-gradient(circle at 50% 42%, rgba(82, 82, 91, 0.08), transparent 34%),
+        #09090b;
+}
+
 /* React Flow Controls */
 
 .react-flow__controls {
@@ -75,5 +81,4 @@ body {
 .react-flow__minimap-mask {
     fill: rgba(9, 9, 11, 0.7) !important;
 }
-
 
