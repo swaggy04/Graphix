@@ -76,8 +76,4 @@ body {
     fill: rgba(9, 9, 11, 0.7) !important;
 }
 
-/* React Flow attribution */
 
-.react-flow__attribution {
-    display: none !important;
-}
