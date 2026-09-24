@@ -488,7 +488,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
           )}
 
           {nodes.length > 0 && (
-            <Panel position="bottom-left" className="!bottom-16">
+            <Panel position="bottom-left" className="!bottom-32 !left-4">
               <div className="flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-[#111114]/85 px-3 py-2 text-[10px] text-zinc-500 shadow-lg backdrop-blur-xl">
                 <LegendDot color="bg-blue-400" label="TypeScript" />
                 <LegendDot color="bg-yellow-400" label="JavaScript" />
