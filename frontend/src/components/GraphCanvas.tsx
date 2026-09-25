@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, type Edge, type Node } from "@xyflow/react";
+import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, useReactFlow, type Edge, type Node } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
 
@@ -70,6 +70,9 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
   const [loading, setLoading] = useState(false);
   const [showIsolated, setShowIsolated] = useState(true);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  const { setCenter, getNode } = useReactFlow();
 
   // ==================================================
   // REPOSITORY STATS
@@ -134,6 +137,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         data: {
           ...node.data,
+
           selected: false,
           highlighted: false,
           dimmed: false,
@@ -150,6 +154,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         data: {
           ...node.data,
+
           selected,
           highlighted,
           dimmed: !highlighted,
@@ -157,6 +162,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         style: {
           ...node.style,
+
           zIndex: selected ? 20 : highlighted ? 10 : 1,
         },
       };
@@ -176,6 +182,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         style: {
           ...edge.style,
+
           stroke: "#3f3f46",
           strokeWidth: 1.2,
           opacity: 0.55,
@@ -193,6 +200,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         style: {
           ...edge.style,
+
           stroke: connected ? "#a1a1aa" : "#27272a",
           strokeWidth: connected ? 2 : 1,
           opacity: connected ? 0.95 : 0.35,
@@ -202,26 +210,63 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   }, [visibleEdges, selectedNode]);
 
   // ==================================================
-  // NODE CLICK
+  // SELECT FILE
   // ==================================================
 
-  const handleNodeClick = useCallback(
-    async (_event: React.MouseEvent, node: Node) => {
+  const selectFile = useCallback(
+    async (filePath: string) => {
       if (!analysisId) {
         return;
       }
 
-      setSelectedNode(node);
+      setAnalysisError(null);
       setFileAnalysis(null);
+
+      // ----------------------------------------------
+      // Find corresponding graph node
+      // ----------------------------------------------
+
+      const targetNode = getNode(filePath);
+
+      if (targetNode) {
+        setSelectedNode(targetNode);
+
+        // --------------------------------------------
+        // Center graph on selected node
+        // --------------------------------------------
+
+        const width = targetNode.measured?.width ?? 180;
+        const height = targetNode.measured?.height ?? 60;
+
+        const centerX = targetNode.position.x + width / 2;
+
+        const centerY = targetNode.position.y + height / 2;
+
+        setCenter(centerX, centerY, {
+          zoom: 1.15,
+          duration: 500,
+        });
+      } else {
+        // Keep inspector usable even if the backend
+        // returned a file that isn't currently visible.
+        setSelectedNode({
+          id: filePath,
+          position: { x: 0, y: 0 },
+          data: {
+            label: getFileName(filePath),
+          },
+        });
+      }
+
       setLoading(true);
 
       try {
-        const encodedFilePath = encodeURIComponent(node.id);
+        const encodedFilePath = encodeURIComponent(filePath);
 
         const response = await fetch(`http://localhost:3001/api/analyze/${analysisId}/file/${encodedFilePath}`);
 
         if (!response.ok) {
-          throw new Error("Failed to fetch file analysis");
+          throw new Error(`Failed to fetch analysis for ${filePath}`);
         }
 
         const data: FileAnalysis = await response.json();
@@ -229,11 +274,24 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
         setFileAnalysis(data);
       } catch (error) {
         console.error("File analysis failed:", error);
+
+        setAnalysisError(error instanceof Error ? error.message : "Failed to analyze file");
       } finally {
         setLoading(false);
       }
     },
-    [analysisId],
+    [analysisId, getNode, setCenter],
+  );
+
+  // ==================================================
+  // NODE CLICK
+  // ==================================================
+
+  const handleNodeClick = useCallback(
+    async (_event: React.MouseEvent, node: Node) => {
+      await selectFile(node.id);
+    },
+    [selectFile],
   );
 
   // ==================================================
@@ -243,6 +301,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   const handlePaneClick = useCallback(() => {
     setSelectedNode(null);
     setFileAnalysis(null);
+    setAnalysisError(null);
   }, []);
 
   // ==================================================
@@ -340,7 +399,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                 px-3
               "
             >
-              <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 shrink-0 text-zinc-600">
                 <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" strokeWidth="1.5" />
 
                 <path d="m8 9 2.5 3L8 15M12.5 15H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -420,8 +479,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
                 <Stat label="Isolated" value={isolatedCount} />
               </div>
-
-              {/* Import statistics */}
 
               {stats && (
                 <div
@@ -509,7 +566,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         {selectedNode && (
           <Panel position="top-right">
-            <FileInspector selectedNode={selectedNode} fileAnalysis={fileAnalysis} loading={loading} onClose={handlePaneClick} />
+            <FileInspector selectedNode={selectedNode} fileAnalysis={fileAnalysis} loading={loading} error={analysisError} onClose={handlePaneClick} onFileClick={selectFile} />
           </Panel>
         )}
       </ReactFlow>
@@ -557,7 +614,21 @@ function ViewButton({ active, onClick, children }: { active: boolean; onClick: (
 // FILE INSPECTOR
 // ==================================================
 
-function FileInspector({ selectedNode, fileAnalysis, loading, onClose }: { selectedNode: Node; fileAnalysis: FileAnalysis | null; loading: boolean; onClose: () => void }) {
+function FileInspector({
+  selectedNode,
+  fileAnalysis,
+  loading,
+  error,
+  onClose,
+  onFileClick,
+}: {
+  selectedNode: Node;
+  fileAnalysis: FileAnalysis | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onFileClick: (filePath: string) => void;
+}) {
   return (
     <aside
       className="
@@ -648,6 +719,14 @@ function FileInspector({ selectedNode, fileAnalysis, loading, onClose }: { selec
         </div>
       )}
 
+      {/* Error */}
+
+      {error && !loading && (
+        <div className="border-b border-zinc-800/80 px-4 py-4">
+          <div className="rounded-lg border border-red-500/20 bg-red-950/20 px-3 py-2.5 text-[10px] leading-4 text-red-300">{error}</div>
+        </div>
+      )}
+
       {/* Analysis */}
 
       {fileAnalysis && !loading && (
@@ -664,9 +743,11 @@ function FileInspector({ selectedNode, fileAnalysis, loading, onClose }: { selec
             [&::-webkit-scrollbar-thumb:hover]:bg-zinc-700
           "
         >
-          <AnalysisSection title="Dependencies" direct={fileAnalysis.dependencies.direct} transitive={fileAnalysis.dependencies.transitive} />
+          <AnalysisSection title="Dependencies" direct={fileAnalysis.dependencies.direct} transitive={fileAnalysis.dependencies.transitive} onFileClick={onFileClick} />
 
-          <AnalysisSection title="Dependents" direct={fileAnalysis.dependents.direct} transitive={fileAnalysis.dependents.transitive} />
+          <AnalysisSection title="Dependents" direct={fileAnalysis.dependents.direct} transitive={fileAnalysis.dependents.transitive} onFileClick={onFileClick} />
+
+          {/* Impact */}
 
           <div className="border-t border-zinc-800/80 px-4 py-4">
             <div className="mb-3 flex items-center justify-between">
@@ -692,7 +773,7 @@ function FileInspector({ selectedNode, fileAnalysis, loading, onClose }: { selec
               </span>
             </div>
 
-            {fileAnalysis.impact.affectedFiles.length === 0 ? <EmptyText text="No affected files." /> : <FileList files={fileAnalysis.impact.affectedFiles} />}
+            {fileAnalysis.impact.affectedFiles.length === 0 ? <EmptyText text="No affected files." /> : <FileList files={fileAnalysis.impact.affectedFiles} onFileClick={onFileClick} />}
           </div>
         </div>
       )}
@@ -704,7 +785,7 @@ function FileInspector({ selectedNode, fileAnalysis, loading, onClose }: { selec
 // ANALYSIS SECTION
 // ==================================================
 
-function AnalysisSection({ title, direct, transitive }: { title: string; direct: string[]; transitive: string[] }) {
+function AnalysisSection({ title, direct, transitive, onFileClick }: { title: string; direct: string[]; transitive: string[]; onFileClick: (filePath: string) => void }) {
   const total = direct.length + transitive.length;
 
   return (
@@ -732,16 +813,20 @@ function AnalysisSection({ title, direct, transitive }: { title: string; direct:
         </span>
       </div>
 
+      {/* Direct */}
+
       <div>
         <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">Direct</div>
 
-        {direct.length === 0 ? <EmptyText text="None" /> : <FileList files={direct} />}
+        {direct.length === 0 ? <EmptyText text="None" /> : <FileList files={direct} onFileClick={onFileClick} />}
       </div>
+
+      {/* Transitive */}
 
       <div className="mt-4">
         <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">Transitive</div>
 
-        {transitive.length === 0 ? <EmptyText text="None" /> : <FileList files={transitive} />}
+        {transitive.length === 0 ? <EmptyText text="None" /> : <FileList files={transitive} onFileClick={onFileClick} />}
       </div>
     </section>
   );
@@ -751,29 +836,62 @@ function AnalysisSection({ title, direct, transitive }: { title: string; direct:
 // FILE LIST
 // ==================================================
 
-function FileList({ files }: { files: string[] }) {
+function FileList({ files, onFileClick }: { files: string[]; onFileClick: (filePath: string) => void }) {
   return (
     <div className="space-y-1">
       {files.map((file) => (
-        <div
+        <button
           key={file}
-          title={file}
+          type="button"
+          title={`Open ${file}`}
+          onClick={() => onFileClick(file)}
           className="
+            group
+            block
+            w-full
             rounded-lg
             border border-zinc-800/80
             bg-[#0c0c0f]
             px-2.5 py-2
+            text-left
             text-[10px]
             leading-4
             text-zinc-500
             transition
-            hover:border-zinc-700
+            hover:border-zinc-600
             hover:bg-zinc-900
-            hover:text-zinc-300
+            hover:text-zinc-200
+            active:scale-[0.99]
           "
         >
-          <span className="line-clamp-2 break-all">{file}</span>
-        </div>
+          <div className="flex items-center gap-2">
+            <span
+              className="
+                h-1.5 w-1.5
+                shrink-0
+                rounded-full
+                bg-zinc-700
+                transition
+                group-hover:bg-zinc-300
+              "
+            />
+
+            <span className="line-clamp-2 break-all">{file}</span>
+
+            <span
+              className="
+                ml-auto
+                shrink-0
+                text-zinc-700
+                opacity-0
+                transition
+                group-hover:opacity-100
+              "
+            >
+              →
+            </span>
+          </div>
+        </button>
       ))}
     </div>
   );
