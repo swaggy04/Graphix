@@ -7,6 +7,10 @@ import "@xyflow/react/dist/style.css";
 
 import FileNode from "./FileNode";
 
+// ==================================================
+// TYPES
+// ==================================================
+
 interface GraphStats {
   totalFiles: number;
   parsedFiles: number;
@@ -54,6 +58,7 @@ interface FileAnalysis {
 
 interface FileNodeData extends Record<string, unknown> {
   label?: string;
+  fileType?: string;
   selected?: boolean;
   highlighted?: boolean;
   dimmed?: boolean;
@@ -63,6 +68,10 @@ interface FileNodeData extends Record<string, unknown> {
 const nodeTypes = {
   file: FileNode,
 };
+
+// ==================================================
+// GRAPH CANVAS
+// ==================================================
 
 export default function GraphCanvas({ nodes, edges, analysisId, stats, repositoryUrl, setRepositoryUrl, onAnalyze, analyzing }: GraphCanvasProps) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
@@ -75,7 +84,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   const { setCenter, getNode } = useReactFlow();
 
   // ==================================================
-  // REPOSITORY STATS
+  // COUNTS
   // ==================================================
 
   const isolatedCount = useMemo(() => {
@@ -104,7 +113,9 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
     });
   }, [nodes, showIsolated]);
 
-  const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
+  const visibleNodeIds = useMemo(() => {
+    return new Set(visibleNodes.map((node) => node.id));
+  }, [visibleNodes]);
 
   const visibleEdges = useMemo(() => {
     if (showIsolated) {
@@ -115,8 +126,24 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   }, [edges, showIsolated, visibleNodeIds]);
 
   // ==================================================
-  // HIGHLIGHTED RELATIONSHIPS
+  // RELATIONSHIP IDS
   // ==================================================
+
+  const dependencyIds = useMemo(() => {
+    if (!fileAnalysis) {
+      return new Set<string>();
+    }
+
+    return new Set(fileAnalysis.dependencies.direct);
+  }, [fileAnalysis]);
+
+  const dependentIds = useMemo(() => {
+    if (!fileAnalysis) {
+      return new Set<string>();
+    }
+
+    return new Set(fileAnalysis.dependents.direct);
+  }, [fileAnalysis]);
 
   const highlightedNodeIds = useMemo(() => {
     if (!selectedNode || !fileAnalysis) {
@@ -131,6 +158,10 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   // ==================================================
 
   const displayNodes = useMemo(() => {
+    /*
+     * No selection:
+     * render the graph normally.
+     */
     if (!selectedNode || !fileAnalysis) {
       return visibleNodes.map((node) => ({
         ...node,
@@ -141,9 +172,24 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
           highlighted: false,
           dimmed: false,
         },
+
+        style: {
+          ...node.style,
+          zIndex: 1,
+        },
       }));
     }
 
+    /*
+     * Selection active:
+     *
+     * Selected node
+     *      ↓
+     * Direct dependencies
+     * Direct dependents
+     *      ↓
+     * Everything else fades.
+     */
     return visibleNodes.map((node) => {
       const selected = node.id === selectedNode.id;
       const highlighted = highlightedNodeIds.has(node.id);
@@ -156,12 +202,24 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
           selected,
           highlighted,
+
+          /*
+           * Don't completely disappear unrelated nodes.
+           * They should remain visible enough to understand
+           * the repository structure.
+           */
           dimmed: !highlighted,
         },
 
         style: {
           ...node.style,
-          zIndex: selected ? 20 : highlighted ? 10 : 1,
+
+          zIndex: selected ? 50 : highlighted ? 20 : 1,
+
+          /*
+           * Keep unrelated nodes present but quiet.
+           */
+          opacity: highlighted ? 1 : 0.32,
         },
       };
     });
@@ -172,68 +230,98 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   // ==================================================
 
   const displayEdges = useMemo(() => {
+    /*
+     * Normal graph state
+     */
     if (!selectedNode || !fileAnalysis) {
       return visibleEdges.map((edge) => ({
         ...edge,
+
         animated: false,
+
         style: {
           ...edge.style,
+
           stroke: "#3f3f46",
-          strokeWidth: 1.2,
-          opacity: 0.55,
+          strokeWidth: 1.1,
+          opacity: 0.48,
         },
       }));
     }
 
-    const dependencyIds = new Set(fileAnalysis.dependencies.direct);
-
-    const dependentIds = new Set(fileAnalysis.dependents.direct);
-
+    /*
+     * Focused graph state
+     */
     return visibleEdges.map((edge) => {
-      // Selected file -> dependency
+      // Selected -> dependency
       const isDependency = edge.source === selectedNode.id && dependencyIds.has(edge.target);
 
-      // Dependent -> selected file
+      // Dependent -> selected
       const isDependent = edge.target === selectedNode.id && dependentIds.has(edge.source);
+
+      // ----------------------------------------------
+      // DEPENDENCY
+      // ----------------------------------------------
 
       if (isDependency) {
         return {
           ...edge,
+
           animated: true,
+
           style: {
             ...edge.style,
+
             stroke: "#60a5fa",
-            strokeWidth: 2.5,
+            strokeWidth: 2.2,
             opacity: 1,
+
+            filter: "drop-shadow(0 0 3px rgba(96,165,250,0.35))",
           },
         };
       }
+
+      // ----------------------------------------------
+      // DEPENDENT
+      // ----------------------------------------------
 
       if (isDependent) {
         return {
           ...edge,
+
           animated: true,
+
           style: {
             ...edge.style,
+
             stroke: "#f59e0b",
-            strokeWidth: 2.5,
+            strokeWidth: 2.2,
             opacity: 1,
+
+            filter: "drop-shadow(0 0 3px rgba(245,158,11,0.3))",
           },
         };
       }
 
+      // ----------------------------------------------
+      // UNRELATED EDGE
+      // ----------------------------------------------
+
       return {
         ...edge,
+
         animated: false,
+
         style: {
           ...edge.style,
+
           stroke: "#27272a",
-          strokeWidth: 1,
-          opacity: 0.25,
+          strokeWidth: 0.8,
+          opacity: 0.12,
         },
       };
     });
-  }, [visibleEdges, selectedNode, fileAnalysis]);
+  }, [visibleEdges, selectedNode, fileAnalysis, dependencyIds, dependentIds]);
 
   // ==================================================
   // SELECT FILE
@@ -249,7 +337,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
       setFileAnalysis(null);
 
       // ----------------------------------------------
-      // Find graph node
+      // FIND GRAPH NODE
       // ----------------------------------------------
 
       const targetNode = getNode(filePath);
@@ -258,11 +346,11 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
         setSelectedNode(targetNode);
 
         // --------------------------------------------
-        // Auto-focus selected node
+        // CENTER NODE
         // --------------------------------------------
 
-        const width = targetNode.measured?.width ?? 180;
-        const height = targetNode.measured?.height ?? 60;
+        const width = targetNode.measured?.width ?? 240;
+        const height = targetNode.measured?.height ?? 70;
 
         const centerX = targetNode.position.x + width / 2;
 
@@ -270,19 +358,21 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         setCenter(centerX, centerY, {
           zoom: 1.15,
-          duration: 500,
+          duration: 450,
         });
       } else {
-        // --------------------------------------------
-        // Backend returned a file which isn't visible
-        // --------------------------------------------
-
+        /*
+         * Backend may return a file that isn't currently
+         * visible because of the Connected / All Files view.
+         */
         setSelectedNode({
           id: filePath,
+
           position: {
             x: 0,
             y: 0,
           },
+
           data: {
             label: getFileName(filePath),
           },
@@ -290,7 +380,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
       }
 
       // ----------------------------------------------
-      // Fetch file analysis
+      // FETCH FILE ANALYSIS
       // ----------------------------------------------
 
       setLoading(true);
@@ -363,8 +453,8 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{
-          padding: 0.16,
-          maxZoom: 1.1,
+          padding: 0.18,
+          maxZoom: 1.05,
           minZoom: 0.08,
         }}
         minZoom={0.04}
@@ -385,7 +475,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
         <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="#242428" />
 
         {/* ==================================================
-            TOP HEADER
+            TOP BAR
         ================================================== */}
 
         <Panel position="top-center">
@@ -394,13 +484,13 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
               flex items-center gap-2
               rounded-2xl
               border border-zinc-800/80
-              bg-[#111114]/90
+              bg-[#111114]/95
               p-1.5
-              shadow-[0_12px_40px_rgba(0,0,0,0.35)]
+              shadow-[0_16px_50px_rgba(0,0,0,0.4)]
               backdrop-blur-xl
             "
           >
-            {/* Brand */}
+            {/* BRAND */}
 
             <div className="hidden items-center gap-2 px-3 sm:flex">
               <div
@@ -410,7 +500,8 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                   rounded-lg
                   border border-zinc-700
                   bg-zinc-900
-                  text-xs font-semibold
+                  text-xs
+                  font-semibold
                   text-zinc-200
                 "
               >
@@ -422,14 +513,17 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
             <div className="h-5 w-px bg-zinc-800" />
 
-            {/* Repository input */}
+            {/* REPOSITORY INPUT */}
 
             <div
               className="
-                flex w-[min(45vw,480px)]
-                items-center gap-2
+                flex
+                w-[min(45vw,480px)]
+                items-center
+                gap-2
                 rounded-xl
-                border border-zinc-800
+                border
+                border-zinc-800
                 bg-[#09090b]
                 px-3
               "
@@ -452,9 +546,12 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                 placeholder="github.com/owner/repository"
                 disabled={analyzing}
                 className="
-                  h-9 min-w-0 flex-1
+                  h-9
+                  min-w-0
+                  flex-1
                   bg-transparent
-                  text-xs text-zinc-200
+                  text-xs
+                  text-zinc-200
                   outline-none
                   placeholder:text-zinc-600
                   disabled:opacity-50
@@ -462,7 +559,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
               />
             </div>
 
-            {/* Analyze */}
+            {/* ANALYZE */}
 
             <button
               onClick={() => void handleAnalyze()}
@@ -472,7 +569,8 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                 rounded-xl
                 bg-zinc-100
                 px-4
-                text-xs font-semibold
+                text-xs
+                font-semibold
                 text-zinc-950
                 transition
                 hover:bg-white
@@ -495,10 +593,13 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
             <div className="space-y-2">
               <div
                 className="
-                  flex items-center gap-1
+                  flex
+                  items-center
+                  gap-1
                   rounded-xl
-                  border border-zinc-800/80
-                  bg-[#111114]/90
+                  border
+                  border-zinc-800/80
+                  bg-[#111114]/95
                   p-1
                   shadow-lg
                   backdrop-blur-xl
@@ -518,11 +619,15 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
               {stats && (
                 <div
                   className="
-                    flex items-center gap-3
+                    flex
+                    items-center
+                    gap-3
                     rounded-xl
-                    border border-zinc-800/80
-                    bg-[#111114]/90
-                    px-3 py-2
+                    border
+                    border-zinc-800/80
+                    bg-[#111114]/95
+                    px-3
+                    py-2
                     text-[10px]
                     shadow-lg
                     backdrop-blur-xl
@@ -544,17 +649,64 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
         )}
 
         {/* ==================================================
-            VIEW SWITCHER
+            RELATIONSHIP LEGEND
         ================================================== */}
 
-        {nodes.length > 0 && isolatedCount > 0 && (
+        {selectedNode && fileAnalysis && (
           <Panel position="bottom-center">
             <div
               className="
-                  flex items-center gap-1
+                flex
+                items-center
+                gap-4
+                rounded-xl
+                border
+                border-zinc-800/80
+                bg-[#111114]/95
+                px-3
+                py-2
+                shadow-xl
+                backdrop-blur-xl
+              "
+            >
+              <LegendItem color="bg-blue-400" label="Dependencies" />
+
+              <LegendItem color="bg-amber-400" label="Dependents" />
+
+              <div className="h-3 w-px bg-zinc-800" />
+
+              <button
+                type="button"
+                onClick={handlePaneClick}
+                className="
+                  text-[10px]
+                  font-medium
+                  text-zinc-600
+                  transition
+                  hover:text-zinc-300
+                "
+              >
+                Clear selection
+              </button>
+            </div>
+          </Panel>
+        )}
+
+        {/* ==================================================
+            VIEW SWITCHER
+        ================================================== */}
+
+        {nodes.length > 0 && isolatedCount > 0 && !selectedNode && (
+          <Panel position="bottom-center">
+            <div
+              className="
+                  flex
+                  items-center
+                  gap-1
                   rounded-xl
-                  border border-zinc-800/80
-                  bg-[#111114]/90
+                  border
+                  border-zinc-800/80
+                  bg-[#111114]/95
                   p-1
                   shadow-xl
                   backdrop-blur-xl
@@ -616,9 +768,50 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="px-2.5 py-1.5">
-      <div className="text-[9px] font-medium uppercase tracking-wider text-zinc-600">{label}</div>
+      <div
+        className="
+          text-[9px]
+          font-medium
+          uppercase
+          tracking-wider
+          text-zinc-600
+        "
+      >
+        {label}
+      </div>
 
-      <div className="mt-0.5 text-xs font-semibold tabular-nums text-zinc-300">{value.toLocaleString()}</div>
+      <div
+        className="
+          mt-0.5
+          text-xs
+          font-semibold
+          tabular-nums
+          text-zinc-300
+        "
+      >
+        {value.toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
+// ==================================================
+// LEGEND ITEM
+// ==================================================
+
+function LegendItem({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className={`
+          h-1.5
+          w-1.5
+          rounded-full
+          ${color}
+        `}
+      />
+
+      <span className="text-[10px] text-zinc-500">{label}</span>
     </div>
   );
 }
@@ -630,13 +823,16 @@ function Stat({ label, value }: { label: string; value: number }) {
 function ViewButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`
         rounded-lg
-        px-3 py-1.5
+        px-3
+        py-1.5
         text-[11px]
         font-medium
         transition
+
         ${active ? "bg-zinc-800 text-zinc-100 shadow-sm" : "text-zinc-600 hover:text-zinc-300"}
       `}
     >
@@ -671,18 +867,21 @@ function FileInspector({
         max-w-[calc(100vw-32px)]
         overflow-hidden
         rounded-2xl
-        border border-zinc-800/90
-        bg-[#111114]/95
-        shadow-[0_20px_70px_rgba(0,0,0,0.45)]
+        border
+        border-zinc-800/90
+        bg-[#111114]/96
+        shadow-[0_20px_70px_rgba(0,0,0,0.5)]
         backdrop-blur-xl
       "
     >
-      {/* Header */}
+      {/* HEADER */}
 
       <div
         className="
-          border-b border-zinc-800/80
-          px-4 py-3.5
+          border-b
+          border-zinc-800/80
+          px-4
+          py-3.5
         "
       >
         <div className="flex items-start justify-between gap-3">
@@ -726,11 +925,16 @@ function FileInspector({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close inspector"
             className="
-              flex h-7 w-7 shrink-0
-              items-center justify-center
+              flex
+              h-7
+              w-7
+              shrink-0
+              items-center
+              justify-center
               rounded-lg
               text-zinc-600
               transition
@@ -743,7 +947,7 @@ function FileInspector({
         </div>
       </div>
 
-      {/* Loading */}
+      {/* LOADING */}
 
       {loading && (
         <div className="px-4 py-8">
@@ -754,15 +958,29 @@ function FileInspector({
         </div>
       )}
 
-      {/* Error */}
+      {/* ERROR */}
 
       {error && !loading && (
         <div className="border-b border-zinc-800/80 px-4 py-4">
-          <div className="rounded-lg border border-red-500/20 bg-red-950/20 px-3 py-2.5 text-[10px] leading-4 text-red-300">{error}</div>
+          <div
+            className="
+              rounded-lg
+              border
+              border-red-500/20
+              bg-red-950/20
+              px-3
+              py-2.5
+              text-[10px]
+              leading-4
+              text-red-300
+            "
+          >
+            {error}
+          </div>
         </div>
       )}
 
-      {/* Analysis */}
+      {/* ANALYSIS */}
 
       {fileAnalysis && !loading && (
         <div
@@ -782,7 +1000,7 @@ function FileInspector({
 
           <AnalysisSection title="Dependents" direct={fileAnalysis.dependents.direct} transitive={fileAnalysis.dependents.transitive} onFileClick={onFileClick} />
 
-          {/* Impact */}
+          {/* IMPACT */}
 
           <div className="border-t border-zinc-800/80 px-4 py-4">
             <div className="mb-3 flex items-center justify-between">
@@ -795,9 +1013,11 @@ function FileInspector({
               <span
                 className="
                   rounded-md
-                  border border-zinc-800
+                  border
+                  border-zinc-800
                   bg-zinc-900
-                  px-2 py-1
+                  px-2
+                  py-1
                   text-[10px]
                   font-medium
                   tabular-nums
@@ -835,9 +1055,11 @@ function AnalysisSection({ title, direct, transitive, onFileClick }: { title: st
         <span
           className="
             rounded-md
-            border border-zinc-800
+            border
+            border-zinc-800
             bg-zinc-900
-            px-2 py-1
+            px-2
+            py-1
             text-[10px]
             font-medium
             tabular-nums
@@ -848,18 +1070,40 @@ function AnalysisSection({ title, direct, transitive, onFileClick }: { title: st
         </span>
       </div>
 
-      {/* Direct */}
+      {/* DIRECT */}
 
       <div>
-        <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">Direct</div>
+        <div
+          className="
+            mb-1.5
+            text-[9px]
+            font-semibold
+            uppercase
+            tracking-wider
+            text-zinc-600
+          "
+        >
+          Direct
+        </div>
 
         {direct.length === 0 ? <EmptyText text="None" /> : <FileList files={direct} onFileClick={onFileClick} />}
       </div>
 
-      {/* Transitive */}
+      {/* TRANSITIVE */}
 
       <div className="mt-4">
-        <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">Transitive</div>
+        <div
+          className="
+            mb-1.5
+            text-[9px]
+            font-semibold
+            uppercase
+            tracking-wider
+            text-zinc-600
+          "
+        >
+          Transitive
+        </div>
 
         {transitive.length === 0 ? <EmptyText text="None" /> : <FileList files={transitive} onFileClick={onFileClick} />}
       </div>
@@ -885,9 +1129,11 @@ function FileList({ files, onFileClick }: { files: string[]; onFileClick: (fileP
             block
             w-full
             rounded-lg
-            border border-zinc-800/80
+            border
+            border-zinc-800/80
             bg-[#0c0c0f]
-            px-2.5 py-2
+            px-2.5
+            py-2
             text-left
             text-[10px]
             leading-4
@@ -902,7 +1148,8 @@ function FileList({ files, onFileClick }: { files: string[]; onFileClick: (fileP
           <div className="flex items-center gap-2">
             <span
               className="
-                h-1.5 w-1.5
+                h-1.5
+                w-1.5
                 shrink-0
                 rounded-full
                 bg-zinc-700
