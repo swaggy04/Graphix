@@ -67,6 +67,7 @@ const nodeTypes = {
 export default function GraphCanvas({ nodes, edges, analysisId, stats, repositoryUrl, setRepositoryUrl, onAnalyze, analyzing }: GraphCanvasProps) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [showIsolated, setShowIsolated] = useState(true);
 
@@ -77,6 +78,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   const isolatedCount = useMemo(() => {
     return nodes.filter((node) => {
       const data = node.data as FileNodeData | undefined;
+
       return data?.isolated === true;
     }).length;
   }, [nodes]);
@@ -94,6 +96,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
     return nodes.filter((node) => {
       const data = node.data as FileNodeData | undefined;
+
       return data?.isolated !== true;
     });
   }, [nodes, showIsolated]);
@@ -128,6 +131,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
     if (!selectedNode || !fileAnalysis) {
       return visibleNodes.map((node) => ({
         ...node,
+
         data: {
           ...node.data,
           selected: false,
@@ -253,6 +257,10 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
     return onAnalyze();
   }, [analyzing, onAnalyze]);
 
+  // ==================================================
+  // RENDER
+  // ==================================================
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-[#09090b]">
       <ReactFlow
@@ -332,7 +340,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                 px-3
               "
             >
-              <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 shrink-0 text-zinc-600">
+              <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden="true">
                 <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" strokeWidth="1.5" />
 
                 <path d="m8 9 2.5 3L8 15M12.5 15H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
