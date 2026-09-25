@@ -137,7 +137,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         data: {
           ...node.data,
-
           selected: false,
           highlighted: false,
           dimmed: false,
@@ -162,7 +161,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         style: {
           ...node.style,
-
           zIndex: selected ? 20 : highlighted ? 10 : 1,
         },
       };
@@ -182,7 +180,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         style: {
           ...edge.style,
-
           stroke: "#3f3f46",
           strokeWidth: 1.2,
           opacity: 0.55,
@@ -200,7 +197,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
         style: {
           ...edge.style,
-
           stroke: connected ? "#a1a1aa" : "#27272a",
           strokeWidth: connected ? 2 : 1,
           opacity: connected ? 0.95 : 0.35,
@@ -223,7 +219,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
       setFileAnalysis(null);
 
       // ----------------------------------------------
-      // Find corresponding graph node
+      // Find graph node
       // ----------------------------------------------
 
       const targetNode = getNode(filePath);
@@ -232,7 +228,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
         setSelectedNode(targetNode);
 
         // --------------------------------------------
-        // Center graph on selected node
+        // Auto-focus selected node
         // --------------------------------------------
 
         const width = targetNode.measured?.width ?? 180;
@@ -247,16 +243,25 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
           duration: 500,
         });
       } else {
-        // Keep inspector usable even if the backend
-        // returned a file that isn't currently visible.
+        // --------------------------------------------
+        // Backend returned a file which isn't visible
+        // --------------------------------------------
+
         setSelectedNode({
           id: filePath,
-          position: { x: 0, y: 0 },
+          position: {
+            x: 0,
+            y: 0,
+          },
           data: {
             label: getFileName(filePath),
           },
         });
       }
+
+      // ----------------------------------------------
+      // Fetch file analysis
+      // ----------------------------------------------
 
       setLoading(true);
 
@@ -516,14 +521,14 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
           <Panel position="bottom-center">
             <div
               className="
-                flex items-center gap-1
-                rounded-xl
-                border border-zinc-800/80
-                bg-[#111114]/90
-                p-1
-                shadow-xl
-                backdrop-blur-xl
-              "
+                  flex items-center gap-1
+                  rounded-xl
+                  border border-zinc-800/80
+                  bg-[#111114]/90
+                  p-1
+                  shadow-xl
+                  backdrop-blur-xl
+                "
             >
               <span className="px-2 text-[10px] uppercase tracking-wider text-zinc-600">View</span>
 
