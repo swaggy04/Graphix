@@ -172,12 +172,10 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   // ==================================================
 
   const displayEdges = useMemo(() => {
-    if (!selectedNode) {
+    if (!selectedNode || !fileAnalysis) {
       return visibleEdges.map((edge) => ({
         ...edge,
-
         animated: false,
-
         style: {
           ...edge.style,
           stroke: "#3f3f46",
@@ -187,23 +185,55 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
       }));
     }
 
+    const dependencyIds = new Set(fileAnalysis.dependencies.direct);
+
+    const dependentIds = new Set(fileAnalysis.dependents.direct);
+
     return visibleEdges.map((edge) => {
-      const connected = edge.source === selectedNode.id || edge.target === selectedNode.id;
+      // Selected file -> dependency
+      const isDependency = edge.source === selectedNode.id && dependencyIds.has(edge.target);
+
+      // Dependent -> selected file
+      const isDependent = edge.target === selectedNode.id && dependentIds.has(edge.source);
+
+      if (isDependency) {
+        return {
+          ...edge,
+          animated: true,
+          style: {
+            ...edge.style,
+            stroke: "#60a5fa",
+            strokeWidth: 2.5,
+            opacity: 1,
+          },
+        };
+      }
+
+      if (isDependent) {
+        return {
+          ...edge,
+          animated: true,
+          style: {
+            ...edge.style,
+            stroke: "#f59e0b",
+            strokeWidth: 2.5,
+            opacity: 1,
+          },
+        };
+      }
 
       return {
         ...edge,
-
         animated: false,
-
         style: {
           ...edge.style,
-          stroke: connected ? "#a1a1aa" : "#27272a",
-          strokeWidth: connected ? 2 : 1,
-          opacity: connected ? 0.95 : 0.35,
+          stroke: "#27272a",
+          strokeWidth: 1,
+          opacity: 0.25,
         },
       };
     });
-  }, [visibleEdges, selectedNode]);
+  }, [visibleEdges, selectedNode, fileAnalysis]);
 
   // ==================================================
   // SELECT FILE
