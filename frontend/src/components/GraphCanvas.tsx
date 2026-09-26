@@ -28,6 +28,7 @@ interface GraphStats {
 interface GraphCanvasProps {
   nodes: Node[];
   edges: Edge[];
+
   analysisId: string | null;
   stats: GraphStats | null;
 
@@ -59,6 +60,7 @@ interface FileAnalysis {
 interface FileNodeData extends Record<string, unknown> {
   label?: string;
   fileType?: string;
+
   selected?: boolean;
   highlighted?: boolean;
   dimmed?: boolean;
@@ -79,7 +81,11 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
   const [loading, setLoading] = useState(false);
   const [showIsolated, setShowIsolated] = useState(true);
+
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  // File search
+  const [search, setSearch] = useState("");
 
   const { setCenter, getNode } = useReactFlow();
 
@@ -126,6 +132,35 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   }, [edges, showIsolated, visibleNodeIds]);
 
   // ==================================================
+  // SEARCHED NODES
+  // ==================================================
+
+  const searchedNodeIds = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) {
+      return new Set<string>();
+    }
+
+    const result = new Set<string>();
+
+    for (const node of visibleNodes) {
+      const data = node.data as FileNodeData;
+
+      const label = String(data?.label ?? "");
+      const id = node.id;
+
+      const matches = label.toLowerCase().includes(query) || id.toLowerCase().includes(query);
+
+      if (matches) {
+        result.add(node.id);
+      }
+    }
+
+    return result;
+  }, [search, visibleNodes]);
+
+  // ==================================================
   // RELATIONSHIP IDS
   // ==================================================
 
@@ -158,41 +193,31 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
   // ==================================================
 
   const displayNodes = useMemo(() => {
-    /*
-     * No selection:
-     * render the graph normally.
-     */
-    if (!selectedNode || !fileAnalysis) {
-      return visibleNodes.map((node) => ({
-        ...node,
-
-        data: {
-          ...node.data,
-          selected: false,
-          highlighted: false,
-          dimmed: false,
-        },
-
-        style: {
-          ...node.style,
-          zIndex: 1,
-        },
-      }));
-    }
-
-    /*
-     * Selection active:
-     *
-     * Selected node
-     *      ↓
-     * Direct dependencies
-     * Direct dependents
-     *      ↓
-     * Everything else fades.
-     */
     return visibleNodes.map((node) => {
-      const selected = node.id === selectedNode.id;
-      const highlighted = highlightedNodeIds.has(node.id);
+      const isSelected = node.id === selectedNode?.id;
+
+      const isRelationshipNode = highlightedNodeIds.has(node.id);
+
+      const isSearchMatch = searchedNodeIds.has(node.id);
+
+      const hasSearch = search.trim().length > 0;
+
+      let opacity = 1;
+
+      // Search is active
+      if (hasSearch) {
+        opacity = isSearchMatch ? 1 : 0.18;
+      }
+
+      // File relationship selection is active
+      if (selectedNode && fileAnalysis) {
+        opacity = isRelationshipNode ? 1 : 0.18;
+      }
+
+      // Search + relationship selection
+      if (hasSearch && selectedNode && fileAnalysis) {
+        opacity = isSearchMatch && isRelationshipNode ? 1 : 0.18;
+      }
 
       return {
         ...node,
@@ -200,70 +225,51 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
         data: {
           ...node.data,
 
-          selected,
-          highlighted,
+          selected: isSelected,
 
-          /*
-           * Don't completely disappear unrelated nodes.
-           * They should remain visible enough to understand
-           * the repository structure.
-           */
-          dimmed: !highlighted,
+          highlighted: isRelationshipNode || isSearchMatch,
+
+          dimmed: opacity < 1,
         },
 
         style: {
           ...node.style,
 
-          zIndex: selected ? 50 : highlighted ? 20 : 1,
+          opacity,
 
-          /*
-           * Keep unrelated nodes present but quiet.
-           */
-          opacity: highlighted ? 1 : 0.32,
+          zIndex: isSelected ? 50 : isRelationshipNode || isSearchMatch ? 20 : 1,
         },
       };
     });
-  }, [visibleNodes, selectedNode, fileAnalysis, highlightedNodeIds]);
+  }, [visibleNodes, selectedNode, fileAnalysis, highlightedNodeIds, searchedNodeIds, search]);
 
   // ==================================================
   // DISPLAY EDGES
   // ==================================================
 
   const displayEdges = useMemo(() => {
-    /*
-     * Normal graph state
-     */
-    if (!selectedNode || !fileAnalysis) {
-      return visibleEdges.map((edge) => ({
-        ...edge,
-
-        animated: false,
-
-        style: {
-          ...edge.style,
-
-          stroke: "#3f3f46",
-          strokeWidth: 1.1,
-          opacity: 0.48,
-        },
-      }));
-    }
-
-    /*
-     * Focused graph state
-     */
     return visibleEdges.map((edge) => {
-      // Selected -> dependency
+      if (!selectedNode || !fileAnalysis) {
+        return {
+          ...edge,
+
+          animated: false,
+
+          style: {
+            ...edge.style,
+
+            stroke: "#52525b",
+            strokeWidth: 1,
+            opacity: 0.45,
+          },
+        };
+      }
+
       const isDependency = edge.source === selectedNode.id && dependencyIds.has(edge.target);
 
-      // Dependent -> selected
       const isDependent = edge.target === selectedNode.id && dependentIds.has(edge.source);
 
-      // ----------------------------------------------
-      // DEPENDENCY
-      // ----------------------------------------------
-
-      if (isDependency) {
+      if (isDependency || isDependent) {
         return {
           ...edge,
 
@@ -272,40 +278,12 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
           style: {
             ...edge.style,
 
-            stroke: "#60a5fa",
-            strokeWidth: 2.2,
-            opacity: 1,
-
-            filter: "drop-shadow(0 0 3px rgba(96,165,250,0.35))",
+            stroke: "#71717a",
+            strokeWidth: 1.5,
+            opacity: 0.9,
           },
         };
       }
-
-      // ----------------------------------------------
-      // DEPENDENT
-      // ----------------------------------------------
-
-      if (isDependent) {
-        return {
-          ...edge,
-
-          animated: true,
-
-          style: {
-            ...edge.style,
-
-            stroke: "#f59e0b",
-            strokeWidth: 2.2,
-            opacity: 1,
-
-            filter: "drop-shadow(0 0 3px rgba(245,158,11,0.3))",
-          },
-        };
-      }
-
-      // ----------------------------------------------
-      // UNRELATED EDGE
-      // ----------------------------------------------
 
       return {
         ...edge,
@@ -336,18 +314,10 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
       setAnalysisError(null);
       setFileAnalysis(null);
 
-      // ----------------------------------------------
-      // FIND GRAPH NODE
-      // ----------------------------------------------
-
       const targetNode = getNode(filePath);
 
       if (targetNode) {
         setSelectedNode(targetNode);
-
-        // --------------------------------------------
-        // CENTER NODE
-        // --------------------------------------------
 
         const width = targetNode.measured?.width ?? 240;
         const height = targetNode.measured?.height ?? 70;
@@ -361,10 +331,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
           duration: 450,
         });
       } else {
-        /*
-         * Backend may return a file that isn't currently
-         * visible because of the Connected / All Files view.
-         */
         setSelectedNode({
           id: filePath,
 
@@ -378,10 +344,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
           },
         });
       }
-
-      // ----------------------------------------------
-      // FETCH FILE ANALYSIS
-      // ----------------------------------------------
 
       setLoading(true);
 
@@ -417,6 +379,33 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
       await selectFile(node.id);
     },
     [selectFile],
+  );
+
+  // ==================================================
+  // SEARCH FILE
+  // ==================================================
+
+  const handleSearchKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+
+      const firstMatch = visibleNodes.find((node) => {
+        const data = node.data as FileNodeData;
+
+        const label = String(data?.label ?? "");
+
+        const query = search.trim().toLowerCase();
+
+        return label.toLowerCase().includes(query) || node.id.toLowerCase().includes(query);
+      });
+
+      if (firstMatch) {
+        void selectFile(firstMatch.id);
+      }
+    },
+    [search, visibleNodes, selectFile],
   );
 
   // ==================================================
@@ -468,9 +457,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
           hideAttribution: false,
         }}
       >
-        {/* ==================================================
-            BACKGROUND
-        ================================================== */}
+        {/* BACKGROUND */}
 
         <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="#242428" />
 
@@ -481,12 +468,15 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
         <Panel position="top-center">
           <div
             className="
-              flex items-center gap-2
+              flex
+              items-center
+              gap-2
               rounded-2xl
-              border border-zinc-800/80
+              border
+              border-zinc-800/80
               bg-[#111114]/95
               p-1.5
-              shadow-[0_16px_50px_rgba(0,0,0,0.4)]
+              shadow-xl
               backdrop-blur-xl
             "
           >
@@ -495,10 +485,14 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
             <div className="hidden items-center gap-2 px-3 sm:flex">
               <div
                 className="
-                  flex h-7 w-7
-                  items-center justify-center
+                  flex
+                  h-7
+                  w-7
+                  items-center
+                  justify-center
                   rounded-lg
-                  border border-zinc-700
+                  border
+                  border-zinc-700
                   bg-zinc-900
                   text-xs
                   font-semibold
@@ -508,17 +502,17 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                 G
               </div>
 
-              <span className="text-sm font-semibold tracking-tight text-zinc-200">Grapix</span>
+              <span className="text-sm font-semibold text-zinc-200">Grapix</span>
             </div>
 
             <div className="h-5 w-px bg-zinc-800" />
 
-            {/* REPOSITORY INPUT */}
+            {/* SEARCH */}
 
             <div
               className="
                 flex
-                w-[min(45vw,480px)]
+                w-[min(28vw,320px)]
                 items-center
                 gap-2
                 rounded-xl
@@ -528,12 +522,56 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                 px-3
               "
             >
-              <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 shrink-0 text-zinc-600">
-                <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" strokeWidth="1.5" />
+              <span className="text-zinc-600">⌕</span>
 
-                <path d="m8 9 2.5 3L8 15M12.5 15H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Search files..."
+                className="
+                  h-9
+                  min-w-0
+                  flex-1
+                  bg-transparent
+                  text-xs
+                  text-zinc-200
+                  outline-none
+                  placeholder:text-zinc-600
+                "
+              />
 
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="
+                    text-xs
+                    text-zinc-600
+                    hover:text-zinc-300
+                  "
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {/* REPOSITORY */}
+
+            <div
+              className="
+                flex
+                w-[min(35vw,420px)]
+                items-center
+                gap-2
+                rounded-xl
+                border
+                border-zinc-800
+                bg-[#09090b]
+                px-3
+              "
+            >
               <input
                 type="text"
                 value={repositoryUrl}
@@ -574,7 +612,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                 text-zinc-950
                 transition
                 hover:bg-white
-                active:scale-[0.98]
                 disabled:cursor-not-allowed
                 disabled:opacity-50
               "
@@ -615,79 +652,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
                 <Stat label="Isolated" value={isolatedCount} />
               </div>
-
-              {stats && (
-                <div
-                  className="
-                    flex
-                    items-center
-                    gap-3
-                    rounded-xl
-                    border
-                    border-zinc-800/80
-                    bg-[#111114]/95
-                    px-3
-                    py-2
-                    text-[10px]
-                    shadow-lg
-                    backdrop-blur-xl
-                  "
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-
-                    <span className="text-zinc-500">{stats.resolvedImports} resolved</span>
-                  </div>
-
-                  <div className="h-3 w-px bg-zinc-800" />
-
-                  <span className="text-amber-400">{stats.unresolvedImports} unresolved</span>
-                </div>
-              )}
-            </div>
-          </Panel>
-        )}
-
-        {/* ==================================================
-            RELATIONSHIP LEGEND
-        ================================================== */}
-
-        {selectedNode && fileAnalysis && (
-          <Panel position="bottom-center">
-            <div
-              className="
-                flex
-                items-center
-                gap-4
-                rounded-xl
-                border
-                border-zinc-800/80
-                bg-[#111114]/95
-                px-3
-                py-2
-                shadow-xl
-                backdrop-blur-xl
-              "
-            >
-              <LegendItem color="bg-blue-400" label="Dependencies" />
-
-              <LegendItem color="bg-amber-400" label="Dependents" />
-
-              <div className="h-3 w-px bg-zinc-800" />
-
-              <button
-                type="button"
-                onClick={handlePaneClick}
-                className="
-                  text-[10px]
-                  font-medium
-                  text-zinc-600
-                  transition
-                  hover:text-zinc-300
-                "
-              >
-                Clear selection
-              </button>
             </div>
           </Panel>
         )}
@@ -709,7 +673,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                   bg-[#111114]/95
                   p-1
                   shadow-xl
-                  backdrop-blur-xl
                 "
             >
               <span className="px-2 text-[10px] uppercase tracking-wider text-zinc-600">View</span>
@@ -768,50 +731,9 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="px-2.5 py-1.5">
-      <div
-        className="
-          text-[9px]
-          font-medium
-          uppercase
-          tracking-wider
-          text-zinc-600
-        "
-      >
-        {label}
-      </div>
+      <div className="text-[9px] font-medium uppercase tracking-wider text-zinc-600">{label}</div>
 
-      <div
-        className="
-          mt-0.5
-          text-xs
-          font-semibold
-          tabular-nums
-          text-zinc-300
-        "
-      >
-        {value.toLocaleString()}
-      </div>
-    </div>
-  );
-}
-
-// ==================================================
-// LEGEND ITEM
-// ==================================================
-
-function LegendItem({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className={`
-          h-1.5
-          w-1.5
-          rounded-full
-          ${color}
-        `}
-      />
-
-      <span className="text-[10px] text-zinc-500">{label}</span>
+      <div className="mt-0.5 text-xs font-semibold tabular-nums text-zinc-300">{value.toLocaleString()}</div>
     </div>
   );
 }
@@ -833,7 +755,7 @@ function ViewButton({ active, onClick, children }: { active: boolean; onClick: (
         font-medium
         transition
 
-        ${active ? "bg-zinc-800 text-zinc-100 shadow-sm" : "text-zinc-600 hover:text-zinc-300"}
+        ${active ? "bg-zinc-800 text-zinc-100" : "text-zinc-600 hover:text-zinc-300"}
       `}
     >
       {children}
@@ -870,58 +792,19 @@ function FileInspector({
         border
         border-zinc-800/90
         bg-[#111114]/96
-        shadow-[0_20px_70px_rgba(0,0,0,0.5)]
-        backdrop-blur-xl
+        shadow-2xl
       "
     >
       {/* HEADER */}
 
-      <div
-        className="
-          border-b
-          border-zinc-800/80
-          px-4
-          py-3.5
-        "
-      >
+      <div className="border-b border-zinc-800/80 px-4 py-3.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div
-              className="
-                mb-1
-                text-[9px]
-                font-semibold
-                uppercase
-                tracking-[0.16em]
-                text-zinc-600
-              "
-            >
-              File inspector
-            </div>
+            <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-600">File inspector</div>
 
-            <div
-              className="
-                break-all
-                text-sm
-                font-medium
-                leading-5
-                text-zinc-100
-              "
-            >
-              {getFileName(selectedNode.id)}
-            </div>
+            <div className="break-all text-sm font-medium leading-5 text-zinc-100">{getFileName(selectedNode.id)}</div>
 
-            <div
-              className="
-                mt-1
-                break-all
-                text-[10px]
-                leading-4
-                text-zinc-600
-              "
-            >
-              {selectedNode.id}
-            </div>
+            <div className="mt-1 break-all text-[10px] leading-4 text-zinc-600">{selectedNode.id}</div>
           </div>
 
           <button
@@ -937,7 +820,6 @@ function FileInspector({
               justify-center
               rounded-lg
               text-zinc-600
-              transition
               hover:bg-zinc-800
               hover:text-zinc-300
             "
@@ -949,53 +831,20 @@ function FileInspector({
 
       {/* LOADING */}
 
-      {loading && (
-        <div className="px-4 py-8">
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-400" />
-            Analyzing dependency relationships...
-          </div>
-        </div>
-      )}
+      {loading && <div className="px-4 py-8 text-xs text-zinc-500">Analyzing dependency relationships...</div>}
 
       {/* ERROR */}
 
       {error && !loading && (
         <div className="border-b border-zinc-800/80 px-4 py-4">
-          <div
-            className="
-              rounded-lg
-              border
-              border-red-500/20
-              bg-red-950/20
-              px-3
-              py-2.5
-              text-[10px]
-              leading-4
-              text-red-300
-            "
-          >
-            {error}
-          </div>
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-[10px] leading-4 text-zinc-400">{error}</div>
         </div>
       )}
 
       {/* ANALYSIS */}
 
       {fileAnalysis && !loading && (
-        <div
-          className="
-            max-h-[calc(100vh-180px)]
-            overflow-y-auto
-            [scrollbar-color:#3f3f46_transparent]
-            [scrollbar-width:thin]
-            [&::-webkit-scrollbar]:w-1.5
-            [&::-webkit-scrollbar-track]:bg-transparent
-            [&::-webkit-scrollbar-thumb]:rounded-full
-            [&::-webkit-scrollbar-thumb]:bg-zinc-800
-            [&::-webkit-scrollbar-thumb:hover]:bg-zinc-700
-          "
-        >
+        <div className="max-h-[calc(100vh-180px)] overflow-y-auto">
           <AnalysisSection title="Dependencies" direct={fileAnalysis.dependencies.direct} transitive={fileAnalysis.dependencies.transitive} onFileClick={onFileClick} />
 
           <AnalysisSection title="Dependents" direct={fileAnalysis.dependents.direct} transitive={fileAnalysis.dependents.transitive} onFileClick={onFileClick} />
@@ -1010,22 +859,7 @@ function FileInspector({
                 <div className="mt-0.5 text-[10px] text-zinc-600">Files affected by this module</div>
               </div>
 
-              <span
-                className="
-                  rounded-md
-                  border
-                  border-zinc-800
-                  bg-zinc-900
-                  px-2
-                  py-1
-                  text-[10px]
-                  font-medium
-                  tabular-nums
-                  text-zinc-500
-                "
-              >
-                {fileAnalysis.impact.affectedFiles.length}
-              </span>
+              <span className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] font-medium tabular-nums text-zinc-500">{fileAnalysis.impact.affectedFiles.length}</span>
             </div>
 
             {fileAnalysis.impact.affectedFiles.length === 0 ? <EmptyText text="No affected files." /> : <FileList files={fileAnalysis.impact.affectedFiles} onFileClick={onFileClick} />}
@@ -1052,39 +886,13 @@ function AnalysisSection({ title, direct, transitive, onFileClick }: { title: st
           <div className="mt-0.5 text-[10px] text-zinc-600">Direct and transitive relationships</div>
         </div>
 
-        <span
-          className="
-            rounded-md
-            border
-            border-zinc-800
-            bg-zinc-900
-            px-2
-            py-1
-            text-[10px]
-            font-medium
-            tabular-nums
-            text-zinc-500
-          "
-        >
-          {total}
-        </span>
+        <span className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] font-medium tabular-nums text-zinc-500">{total}</span>
       </div>
 
       {/* DIRECT */}
 
       <div>
-        <div
-          className="
-            mb-1.5
-            text-[9px]
-            font-semibold
-            uppercase
-            tracking-wider
-            text-zinc-600
-          "
-        >
-          Direct
-        </div>
+        <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">Direct</div>
 
         {direct.length === 0 ? <EmptyText text="None" /> : <FileList files={direct} onFileClick={onFileClick} />}
       </div>
@@ -1092,18 +900,7 @@ function AnalysisSection({ title, direct, transitive, onFileClick }: { title: st
       {/* TRANSITIVE */}
 
       <div className="mt-4">
-        <div
-          className="
-            mb-1.5
-            text-[9px]
-            font-semibold
-            uppercase
-            tracking-wider
-            text-zinc-600
-          "
-        >
-          Transitive
-        </div>
+        <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">Transitive</div>
 
         {transitive.length === 0 ? <EmptyText text="None" /> : <FileList files={transitive} onFileClick={onFileClick} />}
       </div>
@@ -1125,7 +922,6 @@ function FileList({ files, onFileClick }: { files: string[]; onFileClick: (fileP
           title={`Open ${file}`}
           onClick={() => onFileClick(file)}
           className="
-            group
             block
             w-full
             rounded-lg
@@ -1142,37 +938,9 @@ function FileList({ files, onFileClick }: { files: string[]; onFileClick: (fileP
             hover:border-zinc-600
             hover:bg-zinc-900
             hover:text-zinc-200
-            active:scale-[0.99]
           "
         >
-          <div className="flex items-center gap-2">
-            <span
-              className="
-                h-1.5
-                w-1.5
-                shrink-0
-                rounded-full
-                bg-zinc-700
-                transition
-                group-hover:bg-zinc-300
-              "
-            />
-
-            <span className="line-clamp-2 break-all">{file}</span>
-
-            <span
-              className="
-                ml-auto
-                shrink-0
-                text-zinc-700
-                opacity-0
-                transition
-                group-hover:opacity-100
-              "
-            >
-              →
-            </span>
-          </div>
+          <span className="line-clamp-2 break-all">{file}</span>
         </button>
       ))}
     </div>
