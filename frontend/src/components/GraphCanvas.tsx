@@ -511,6 +511,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
             <div
               className="
+                relative
                 flex
                 w-[min(28vw,320px)]
                 items-center
@@ -541,6 +542,74 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                   placeholder:text-zinc-600
                 "
               />
+              {search.trim() && (
+                <div
+                  className="
+                    absolute
+                    left-0
+                    top-full
+                    mt-2
+                    w-full
+                    overflow-hidden
+                    rounded-xl
+                    border
+                    border-zinc-800
+                    bg-[#111114]
+                    shadow-2xl
+                  "
+                >
+                  {visibleNodes.filter((node) => {
+                    const data = node.data as FileNodeData;
+
+                    const query = search.trim().toLowerCase();
+                    const label = String(data?.label ?? "");
+
+                    return label.toLowerCase().includes(query) || node.id.toLowerCase().includes(query);
+                  }).length === 0 ? (
+                    <div className="px-3 py-4 text-xs text-zinc-600">No files found</div>
+                  ) : (
+                    visibleNodes
+                      .filter((node) => {
+                        const data = node.data as FileNodeData;
+
+                        const query = search.trim().toLowerCase();
+                        const label = String(data?.label ?? "");
+
+                        return label.toLowerCase().includes(query) || node.id.toLowerCase().includes(query);
+                      })
+                      .slice(0, 8)
+                      .map((node) => {
+                        const data = node.data as FileNodeData;
+
+                        return (
+                          <button
+                            key={node.id}
+                            type="button"
+                            onClick={() => {
+                              setSearch("");
+                              void selectFile(node.id);
+                            }}
+                            className="
+                              block
+                              w-full
+                              border-b
+                              border-zinc-800/60
+                              px-3
+                              py-2.5
+                              text-left
+                              last:border-0
+                              hover:bg-zinc-900
+                            "
+                          >
+                            <div className="truncate text-xs text-zinc-300">{String(data.label ?? node.id)}</div>
+
+                            <div className="mt-0.5 truncate text-[10px] text-zinc-600">{node.id}</div>
+                          </button>
+                        );
+                      })
+                  )}
+                </div>
+              )}
 
               {search && (
                 <button
