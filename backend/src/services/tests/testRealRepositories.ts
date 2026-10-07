@@ -2,8 +2,7 @@ import { cloneRepository } from "../repository.service";
 import { discoverSourceFiles } from "../file-discovery.service";
 import { createDependencyGraph } from "../dependency-analyzer.service";
 
-const repositories = ["https://github.com/expressjs/express"];
-
+const repositories = ["https://github.com/withastro/astro"];
 async function analyzeRepository(url: string) {
   console.log("\n========================================");
   console.log(`Repository: ${url}`);
@@ -12,6 +11,7 @@ async function analyzeRepository(url: string) {
   const cloneStart = performance.now();
 
   const repositoryPath = await cloneRepository(url);
+  console.log("Repository path:", repositoryPath);
 
   const cloneTime = performance.now() - cloneStart;
 

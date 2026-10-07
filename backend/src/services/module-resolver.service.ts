@@ -17,28 +17,38 @@ export function createModuleResolver(repositoryPath: string) {
 
     const importerDirectory = path.dirname(absoluteImporterPath);
 
-    try {
-      let request = importSpecifier;
+    const requests = [importSpecifier];
 
-      if (matchPath) {
-        const matchedPath = matchPath(importSpecifier, undefined, undefined, [".ts", ".tsx", ".js", ".jsx"]);
-
-        if (matchedPath) {
-          request = matchedPath;
-        }
-      }
-
-      const result = await resolver(importerDirectory, request);
-
-      if (!result) {
-        return null;
-      }
-
-      const relativePath = path.relative(repositoryPath, result);
-
-      return relativePath.split(path.sep).join("/");
-    } catch {
-      return null;
+    if (importSpecifier.endsWith(".js") || importSpecifier.endsWith(".jsx")) {
+      requests.push(importSpecifier.slice(0, importSpecifier.lastIndexOf(".")));
     }
+
+    for (const request of requests) {
+      try {
+        let resolvedRequest = request;
+
+        if (matchPath) {
+          const matchedPath = matchPath(request, undefined, undefined, [".ts", ".tsx", ".js", ".jsx"]);
+
+          if (matchedPath) {
+            resolvedRequest = matchedPath;
+          }
+        }
+
+        const result = await resolver(importerDirectory, resolvedRequest);
+
+        if (!result) {
+          continue;
+        }
+
+        const relativePath = path.relative(repositoryPath, result);
+
+        return relativePath.split(path.sep).join("/");
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
   };
 }
