@@ -11,6 +11,7 @@ async function main() {
     "entry.ts",
     "named-export.ts",
     "star-export.ts",
+    "commonjs.ts",
   ];
 
   for (const file of files) {

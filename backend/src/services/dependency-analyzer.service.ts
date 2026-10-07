@@ -2,6 +2,7 @@ import Graph from "graphology";
 import { extractImports } from "./ast-parser.service";
 import { createModuleResolver } from "./module-resolver.service";
 import { classifyImport } from "../utils/import-classifier";
+
 export interface DependencyAnalysis {
   graph: Graph;
   stats: {
@@ -14,13 +15,11 @@ export interface DependencyAnalysis {
     packageImports: number;
     builtinImports: number;
     unresolvedImportSpecifiers: string[];
+    unresolvedRelativeImportSpecifiers: string[];
   };
 }
 
-export async function createDependencyGraph(
-  repositoryPath: string,
-  files: string[],
-): Promise<DependencyAnalysis> {
+export async function createDependencyGraph(repositoryPath: string, files: string[]): Promise<DependencyAnalysis> {
   const graph = new Graph({
     type: "directed",
   });
@@ -37,6 +36,7 @@ export async function createDependencyGraph(
   let builtinImports = 0;
 
   const unresolvedImportSpecifiers = new Set<string>();
+  const unresolvedRelativeImportSpecifiers = new Set<string>();
 
   for (const file of files) {
     graph.addNode(file);
@@ -47,6 +47,7 @@ export async function createDependencyGraph(
 
     try {
       imports = await extractImports(repositoryPath, file);
+
       parsedFiles++;
     } catch {
       failedFiles++;
@@ -74,6 +75,11 @@ export async function createDependencyGraph(
       if (!resolvedFile) {
         unresolvedImports++;
         unresolvedImportSpecifiers.add(imp);
+
+        if (kind === "relative") {
+          unresolvedRelativeImportSpecifiers.add(imp);
+        }
+
         continue;
       }
 
@@ -101,6 +107,7 @@ export async function createDependencyGraph(
       packageImports,
       builtinImports,
       unresolvedImportSpecifiers: Array.from(unresolvedImportSpecifiers),
+      unresolvedRelativeImportSpecifiers: Array.from(unresolvedRelativeImportSpecifiers),
     },
   };
 }

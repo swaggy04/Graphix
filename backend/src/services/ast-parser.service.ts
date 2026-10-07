@@ -26,6 +26,7 @@ export async function extractImports(repositoryPath: string, relativeFilePath: s
   {
     /* React's repository contains Flow files. */
   }
+
   if (!isTypeScript) {
     plugins.push("flow");
   }
@@ -50,6 +51,21 @@ export async function extractImports(repositoryPath: string, relativeFilePath: s
 
     if (node.type === "ExportAllDeclaration" && node.source) {
       imports.push(node.source.value);
+      continue;
+    }
+
+    if (node.type === "VariableDeclaration") {
+      for (const declaration of node.declarations) {
+        const initializer = declaration.init;
+
+        if (initializer?.type === "CallExpression" && initializer.callee.type === "Identifier" && initializer.callee.name === "require" && initializer.arguments.length === 1) {
+          const argument = initializer.arguments[0];
+
+          if (argument.type === "StringLiteral") {
+            imports.push(argument.value);
+          }
+        }
+      }
     }
   }
 
