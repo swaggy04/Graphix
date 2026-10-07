@@ -6,10 +6,15 @@ async function main() {
 
   const resolveModule = createModuleResolver(repositoryPath);
 
-  const resolved = await resolveModule("entry.ts", "@/helper");
+  const helperResult = await resolveModule("entry.ts", "@/helper");
 
-  console.log("Resolved alias:");
-  console.log(resolved);
+  const buttonResult = await resolveModule("entry.ts", "@components/Button");
+
+  console.log("@/helper:");
+  console.log(helperResult);
+
+  console.log("@components/Button:");
+  console.log(buttonResult);
 }
 
 main().catch((error) => {
