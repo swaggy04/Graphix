@@ -1,5 +1,6 @@
 import path from "path";
 import resolve from "enhanced-resolve";
+import { createMatchPath, loadConfig } from "tsconfig-paths";
 
 export function createModuleResolver(repositoryPath: string) {
   const resolver = resolve.create.promise({
@@ -7,16 +8,27 @@ export function createModuleResolver(repositoryPath: string) {
     mainFiles: ["index"],
   });
 
-  return async function resolveModule(
-    importerFile: string,
-    importSpecifier: string,
-  ): Promise<string | null> {
+  const tsconfigResult = loadConfig(repositoryPath);
+
+  const matchPath = tsconfigResult.resultType === "success" ? createMatchPath(tsconfigResult.absoluteBaseUrl, tsconfigResult.paths) : null;
+
+  return async function resolveModule(importerFile: string, importSpecifier: string): Promise<string | null> {
     const absoluteImporterPath = path.join(repositoryPath, importerFile);
 
     const importerDirectory = path.dirname(absoluteImporterPath);
 
     try {
-      const result = await resolver(importerDirectory, importSpecifier);
+      let request = importSpecifier;
+
+      if (matchPath) {
+        const matchedPath = matchPath(importSpecifier, undefined, undefined, [".ts", ".tsx", ".js", ".jsx"]);
+
+        if (matchedPath) {
+          request = matchedPath;
+        }
+      }
+
+      const result = await resolver(importerDirectory, request);
 
       if (!result) {
         return null;
