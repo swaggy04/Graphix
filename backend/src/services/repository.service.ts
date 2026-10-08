@@ -7,6 +7,10 @@ import { parseGitHubUrl } from "../utils/github-url";
 
 const execFileAsync = promisify(execFile);
 
+const CLONE_TIMEOUT = process.env.CLONE_TIMEOUT_MS
+  ? Number(process.env.CLONE_TIMEOUT_MS)
+  : 60 * 1000;
+
 export async function cloneRepository(url: string): Promise<string> {
   const { repo } = parseGitHubUrl(url);
 
@@ -15,7 +19,9 @@ export async function cloneRepository(url: string): Promise<string> {
   const repositoryPath = path.join(tempDirectory, repo);
 
   try {
-    await execFileAsync("git", ["clone", "--depth", "1", url, repositoryPath]);
+    await execFileAsync("git", ["clone", "--depth", "1", url, repositoryPath], {
+      timeout: CLONE_TIMEOUT,
+    });
 
     return repositoryPath;
   } catch (error) {
