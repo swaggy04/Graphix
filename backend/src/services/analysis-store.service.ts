@@ -1,7 +1,7 @@
 import Graph from "graphology";
 import { randomUUID } from "crypto";
 
-const ANALYSIS_TTL = 30 * 60 * 1000;
+const ANALYSIS_TTL = process.env.ANALYSIS_TTL_MS ? Number(process.env.ANALYSIS_TTL_MS) : 30 * 60 * 1000;
 
 const analysisStore = new Map<string, Graph>();
 
