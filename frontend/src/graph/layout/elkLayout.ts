@@ -33,22 +33,22 @@ const elk = new ELK();
 // Must match FileNode.tsx
 // ==================================================
 
-const NODE_WIDTH = 240;
-const NODE_HEIGHT = 52;
+const NODE_WIDTH = 280;
+const NODE_HEIGHT = 70;
 
 // ==================================================
 // CONNECTED GRAPH SPACING
 // ==================================================
 
-const NODE_SPACING = 50;
-const LAYER_SPACING = 90;
+const NODE_SPACING = 42;
+const LAYER_SPACING = 124;
 
 const COMPONENT_PADDING = 50;
 
-const COMPONENT_GAP_X = 140;
-const COMPONENT_GAP_Y = 160;
+const COMPONENT_GAP_X = 180;
+const COMPONENT_GAP_Y = 180;
 
-const MAX_GRAPH_WIDTH = 2200;
+const MAX_GRAPH_WIDTH = 1600;
 
 // ==================================================
 // ISOLATED FILE SPACING
@@ -242,11 +242,14 @@ async function layoutConnectedComponent(componentNodes: GraphViewNode[], compone
       // Distance between dependency layers.
       "elk.layered.spacing.nodeNodeBetweenLayers": String(LAYER_SPACING),
 
+      // Keep dependency levels visually simple and tree-like.
+      "elk.layered.layering.strategy": "LONGEST_PATH",
+
       // Reduce crossings.
       "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
 
       // Balanced node placement.
-      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
+      "elk.layered.nodePlacement.strategy": "LINEAR_SEGMENTS",
 
       // Balanced BK alignment.
       "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",

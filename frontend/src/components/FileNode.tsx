@@ -10,6 +10,7 @@ interface FileNodeData extends Record<string, unknown> {
   dependency?: boolean;
   dependent?: boolean;
   impact?: boolean;
+  cycle?: boolean;
 
   dimmed?: boolean;
   isolated?: boolean;
@@ -70,6 +71,23 @@ function getFileType(path: string) {
   }
 }
 
+function getTypeColor(type: string) {
+  switch (type) {
+    case "TS":
+    case "TSX":
+      return "bg-blue-400";
+    case "JS":
+    case "JSX":
+      return "bg-yellow-400";
+    case "JSON":
+      return "bg-emerald-400";
+    case "CSS":
+      return "bg-fuchsia-400";
+    default:
+      return "bg-zinc-500";
+  }
+}
+
 // ==================================================
 // FILE NODE
 // ==================================================
@@ -80,11 +98,28 @@ export default function FileNode({ data }: NodeProps<FileNodeType>) {
   const selected = data?.selected === true;
   const dimmed = data?.dimmed === true;
   const isolated = data?.isolated === true;
+  const dependency = data?.dependency === true;
+  const dependent = data?.dependent === true;
+  const impact = data?.impact === true;
+  const cycle = data?.cycle === true;
 
   const fileName = getFileName(label);
   const directory = getDirectory(label);
 
   const fileType = typeof data?.fileType === "string" ? data.fileType : getFileType(label);
+  const typeColor = getTypeColor(fileType);
+
+  const borderState = selected
+    ? "border-zinc-300 bg-[#1d1d22] shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_12px_32px_rgba(0,0,0,0.35)]"
+    : cycle
+      ? "border-amber-400/80 bg-[#211a0e] shadow-[0_0_0_1px_rgba(245,158,11,0.15),0_10px_30px_rgba(245,158,11,0.08)]"
+      : dependency
+        ? "border-sky-400/45 bg-[#111c27]"
+        : dependent
+          ? "border-violet-400/45 bg-[#191426]"
+          : impact
+            ? "border-rose-400/45 bg-[#24151b]"
+            : "border-zinc-800 bg-[#151517]";
 
   return (
     <div
@@ -98,7 +133,7 @@ export default function FileNode({ data }: NodeProps<FileNodeType>) {
         px-3.5
         py-3
 
-        ${selected ? "border-zinc-500 bg-[#19191c]" : "border-zinc-800 bg-[#151517]"}
+        ${borderState}
 
         transition-[border-color,background-color,opacity]
         duration-150
@@ -136,7 +171,8 @@ export default function FileNode({ data }: NodeProps<FileNodeType>) {
             w-2
             shrink-0
             rounded-full
-            ${selected ? "bg-zinc-300" : "bg-zinc-500"}
+            ${typeColor}
+            ${selected || cycle ? "shadow-[0_0_10px_currentColor]" : ""}
           `}
         />
 

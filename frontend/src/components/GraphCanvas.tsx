@@ -55,6 +55,10 @@ interface FileNodeData extends Record<string, unknown> {
   highlighted?: boolean;
   dimmed?: boolean;
   isolated?: boolean;
+  dependency?: boolean;
+  dependent?: boolean;
+  impact?: boolean;
+  cycle?: boolean;
 }
 
 const nodeTypes = {
@@ -65,12 +69,13 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showIsolated, setShowIsolated] = useState(true);
+  const [showIsolated, setShowIsolated] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedCycleIndex, setSelectedCycleIndex] = useState<number | null>(null);
+  const [dismissedNoCycleNoticeFor, setDismissedNoCycleNoticeFor] = useState<string | null>(null);
 
-  const { setCenter, getNode } = useReactFlow();
+  const { setCenter, getNode, fitView } = useReactFlow();
 
   const activeCycleIndex = selectedCycleIndex !== null && selectedCycleIndex < cycles.length ? selectedCycleIndex : null;
   const selectedCycle = activeCycleIndex === null ? null : cycles[activeCycleIndex];
@@ -169,6 +174,9 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       const isRelationshipNode = highlightedNodeIds.has(node.id);
       const isSearchMatch = searchedNodeIds.has(node.id);
       const isCycleNode = selectedCycleNodeIds.has(node.id);
+      const isDependency = dependencyIds.has(node.id);
+      const isDependent = dependentIds.has(node.id);
+      const isImpact = fileAnalysis?.impact.affectedFiles.includes(node.id) === true;
 
       const hasSearch = search.trim().length > 0;
       const hasCycle = selectedCycle !== null;
@@ -180,11 +188,11 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       }
 
       if (selectedNode && fileAnalysis) {
-        opacity = isRelationshipNode ? 1 : 0.18;
+        opacity = isRelationshipNode ? 1 : 0.08;
       }
 
       if (hasSearch && selectedNode && fileAnalysis) {
-        opacity = isSearchMatch && isRelationshipNode ? 1 : 0.18;
+        opacity = isSearchMatch && isRelationshipNode ? 1 : 0.08;
       }
 
       if (hasCycle) {
@@ -199,6 +207,10 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
           selected: isSelected,
           highlighted: isRelationshipNode || isSearchMatch || isCycleNode,
           dimmed: opacity < 1,
+          dependency: isDependency,
+          dependent: isDependent,
+          impact: isImpact,
+          cycle: isCycleNode,
         },
 
         style: {
@@ -208,7 +220,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         },
       };
     });
-  }, [visibleNodes, selectedNode, fileAnalysis, highlightedNodeIds, searchedNodeIds, search, selectedCycle, selectedCycleNodeIds]);
+  }, [visibleNodes, selectedNode, fileAnalysis, highlightedNodeIds, searchedNodeIds, search, selectedCycle, selectedCycleNodeIds, dependencyIds, dependentIds]);
 
   /// Display edges
 
@@ -266,7 +278,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
           ...edge.style,
           stroke: "#27272a",
           strokeWidth: 0.8,
-          opacity: 0.12,
+          opacity: 0.06,
         },
       };
     });
@@ -289,16 +301,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       if (targetNode) {
         setSelectedNode(targetNode);
 
-        const width = targetNode.measured?.width ?? 240;
-        const height = targetNode.measured?.height ?? 70;
-
-        const centerX = targetNode.position.x + width / 2;
-        const centerY = targetNode.position.y + height / 2;
-
-        setCenter(centerX, centerY, {
-          zoom: 1.15,
-          duration: 450,
-        });
       } else {
         setSelectedNode({
           id: filePath,
@@ -326,6 +328,19 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         const data: FileAnalysis = await response.json();
 
         setFileAnalysis(data);
+
+        const focusNodes = [filePath, ...data.dependencies.direct, ...data.dependents.direct]
+          .map((path) => getNode(path))
+          .filter((node): node is Node => Boolean(node));
+
+        if (focusNodes.length > 0) {
+          await fitView({
+            nodes: focusNodes,
+            padding: 0.28,
+            duration: 450,
+            maxZoom: 1.05,
+          });
+        }
       } catch (error) {
         console.error("File analysis failed:", error);
 
@@ -334,7 +349,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         setLoading(false);
       }
     },
-    [analysisId, getNode, setCenter],
+    [analysisId, fitView, getNode],
   );
 
   const selectCycle = useCallback(
@@ -430,6 +445,19 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-[#09090b]">
+      {nodes.length === 0 && !analyzing && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-6">
+          <div className="max-w-md text-center">
+            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-zinc-800 bg-[#111114] text-lg font-semibold text-zinc-300 shadow-2xl">
+              G
+            </div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-600">Repository intelligence</p>
+            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-200">See how your codebase connects.</h1>
+            <p className="mt-3 text-sm leading-6 text-zinc-500">Enter a public GitHub repository above to explore files, dependencies, circular groups, and change impact.</p>
+          </div>
+        </div>
+      )}
+
       <ReactFlow
         nodes={displayNodes}
         edges={displayEdges}
@@ -607,6 +635,25 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
             </button>
           </div>
         </Panel>
+        {nodes.length > 0 && cycles.length === 0 && analysisId && dismissedNoCycleNoticeFor !== analysisId && (
+          <Panel position="top-center" style={{ marginTop: "74px" }}>
+            <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-[#0d1713]/95 px-4 py-3 shadow-2xl backdrop-blur-xl">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-400/10 text-sm text-emerald-400">✓</span>
+              <div>
+                <div className="text-xs font-medium text-zinc-200">No circular dependencies found</div>
+                <div className="mt-0.5 text-[10px] text-zinc-500">The analyzed graph contains no dependency cycles.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDismissedNoCycleNoticeFor(analysisId)}
+                className="ml-2 text-zinc-600 transition hover:text-zinc-300"
+                aria-label="Dismiss cycle status"
+              >
+                ×
+              </button>
+            </div>
+          </Panel>
+        )}
         {/*/// Stats*/}
         {nodes.length > 0 && (
           <Panel position="top-left">
@@ -634,7 +681,17 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
                 <Stat label="Cycles" value={cycles.length} />
               </div>
 
-              {cycles.length > 0 && (
+              {stats && (
+                <div className="flex items-center gap-2 rounded-lg border border-zinc-800/80 bg-[#111114]/80 px-3 py-2 text-[10px] text-zinc-500 shadow-lg backdrop-blur-xl">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
+                  <span>{stats.parsedFiles.toLocaleString()} parsed</span>
+                  <span className="text-zinc-700">·</span>
+                  <span>{stats.resolvedImports.toLocaleString()} imports</span>
+                  {stats.failedFiles > 0 && <span className="text-rose-400/80">{stats.failedFiles.toLocaleString()} failed</span>}
+                </div>
+              )}
+
+              {cycles.length > 0 ? (
                 <div className="rounded-xl border border-amber-500/20 bg-[#17130b]/90 p-2 shadow-lg backdrop-blur-xl">
                   <div className="mb-1.5 flex items-center justify-between px-1">
                     <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-amber-400/80">Circular dependencies</span>
@@ -664,7 +721,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
                     ))}
                   </select>
                 </div>
-              )}
+              ) : null}
             </div>
           </Panel>
         )}
@@ -687,6 +744,15 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
               <ViewButton active={showIsolated} onClick={() => setShowIsolated(true)}>
                 All files
               </ViewButton>
+            </div>
+          </Panel>
+        )}
+        {nodes.length > 0 && (
+          <Panel position="bottom-left" className="!bottom-32 !left-4">
+            <div className="flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-[#111114]/90 px-3 py-2 text-[10px] text-zinc-500 shadow-lg backdrop-blur-xl">
+              <LegendDot color="bg-blue-400" label="TypeScript" />
+              <LegendDot color="bg-yellow-400" label="JavaScript" />
+              <LegendDot color="bg-amber-400" label="Cycle" />
             </div>
           </Panel>
         )}
@@ -747,6 +813,15 @@ function ViewButton({ active, onClick, children }: { active: boolean; onClick: (
   );
 }
 
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5 whitespace-nowrap">
+      <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
+      {label}
+    </span>
+  );
+}
+
 function FileInspector({
   selectedNode,
   fileAnalysis,
@@ -765,14 +840,16 @@ function FileInspector({
   return (
     <aside
       className="
-        w-90 max-w-[calc(100vw-32px)]
+        flex max-h-[min(620px,calc(100vh-104px))] w-[300px]
+        max-w-[calc(100vw-32px)]
+        flex-col
         overflow-hidden rounded-2xl
         border border-zinc-800/90
-        bg-[#111114]/96 shadow-2xl
+        bg-[#111114]/96 shadow-[0_24px_80px_rgba(0,0,0,0.5)]
       "
     >
       {/*/// Header*/}
-      <div className="border-b border-zinc-800/80 px-4 py-3.5">
+      <div className="shrink-0 border-b border-zinc-800/80 px-3.5 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-600">File inspector</div>
@@ -805,9 +882,16 @@ function FileInspector({
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-[10px] leading-4 text-zinc-400">{error}</div>
         </div>
       )}
+      {fileAnalysis && !loading && !error && (
+        <div className="grid grid-cols-3 gap-2 border-b border-zinc-800/80 px-4 py-3">
+          <InspectorMetric label="Depends on" value={fileAnalysis.dependencies.direct.length} />
+          <InspectorMetric label="Used by" value={fileAnalysis.dependents.direct.length} />
+          <InspectorMetric label="Impact" value={fileAnalysis.impact.affectedFiles.length} />
+        </div>
+      )}
       {/*/// Analysis*/}
       {fileAnalysis && !loading && (
-        <div className="max-h-[calc(100vh-180px)] overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto grapix-inspector-scroll">
           <AnalysisSection title="Dependencies" direct={fileAnalysis.dependencies.direct} transitive={fileAnalysis.dependencies.transitive} onFileClick={onFileClick} />
           <AnalysisSection title="Dependents" direct={fileAnalysis.dependents.direct} transitive={fileAnalysis.dependents.transitive} onFileClick={onFileClick} />
           {/*/// Impact*/}
@@ -834,7 +918,7 @@ function AnalysisSection({ title, direct, transitive, onFileClick }: { title: st
   const total = direct.length + transitive.length;
 
   return (
-    <section className="border-b border-zinc-800/80 px-4 py-4">
+    <section className="border-b border-zinc-800/80 px-4 py-3.5">
       <div className="mb-3 flex items-center justify-between">
         <div>
           <div className="text-xs font-semibold text-zinc-200">{title}</div>
@@ -850,19 +934,24 @@ function AnalysisSection({ title, direct, transitive, onFileClick }: { title: st
 
         {direct.length === 0 ? <EmptyText text="None" /> : <FileList files={direct} onFileClick={onFileClick} />}
       </div>
-      {/*/// Transitive*/}
-      <div className="mt-4">
-        <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">Transitive</div>
+      <details className="mt-4 group">
+        <summary className="flex cursor-pointer list-none items-center justify-between text-[9px] font-semibold uppercase tracking-wider text-zinc-600 transition hover:text-zinc-300">
+          <span>Transitive</span>
+          <span className="flex items-center gap-2 normal-case tracking-normal text-zinc-700">
+            {transitive.length}
+            <span className="text-xs transition group-open:rotate-180">⌄</span>
+          </span>
+        </summary>
 
-        {transitive.length === 0 ? <EmptyText text="None" /> : <FileList files={transitive} onFileClick={onFileClick} />}
-      </div>
+        <div className="mt-2">{transitive.length === 0 ? <EmptyText text="None" /> : <FileList files={transitive} onFileClick={onFileClick} />}</div>
+      </details>
     </section>
   );
 }
 
 function FileList({ files, onFileClick }: { files: string[]; onFileClick: (filePath: string) => void }) {
   return (
-    <div className="space-y-1">
+    <div className="max-h-32 space-y-1 overflow-y-auto pr-1 grapix-inspector-scroll">
       {files.map((file) => (
         <button
           key={file}
@@ -888,6 +977,15 @@ function FileList({ files, onFileClick }: { files: string[]; onFileClick: (fileP
 
 function EmptyText({ text }: { text: string }) {
   return <p className="text-[10px] text-zinc-700">{text}</p>;
+}
+
+function InspectorMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-zinc-800/80 bg-[#0c0c0f] px-2 py-2">
+      <div className="text-[9px] uppercase tracking-wider text-zinc-600">{label}</div>
+      <div className="mt-1 text-sm font-semibold tabular-nums text-zinc-200">{value.toLocaleString()}</div>
+    </div>
+  );
 }
 
 function getFileName(path: string) {
