@@ -6,6 +6,7 @@ import { createDependencyGraph } from "../services/dependency-analyzer.service";
 import { createGraphViewModel } from "../services/graph-view-model.service";
 import { getAnalysis, storeAnalysis } from "../services/analysis-store.service";
 import { analyzeFile } from "../services/file-analysis.service";
+import { detectCycles } from "../services/cycle-detection.service";
 
 /// HTTP orchestration layer.
 const router = Router();
@@ -22,19 +23,29 @@ router.post("/analyze", async (req, res) => {
   let repositoryPath: string | null = null;
 
   try {
+    // 1. Clone repository.
     repositoryPath = await cloneRepository(repositoryUrl);
 
+    // 2. Discover source files.
     const files = await discoverSourceFiles(repositoryPath);
 
+    // 3. Build dependency graph.
     const { graph, stats } = await createDependencyGraph(repositoryPath, files);
 
+    // 4. Detect circular dependencies.
+    const cycles = detectCycles(graph);
+
+    // 5. Store the graph for subsequent file-inspector requests.
     const analysisId = storeAnalysis(graph);
 
+    // 6. Convert the graph into an API-safe view model.
     const viewModel = createGraphViewModel(graph);
 
+    // 7. Return graph data and cycle information.
     return res.status(200).json({
       nodes: viewModel.nodes,
       edges: viewModel.edges,
+      cycles,
       analysisId,
       stats,
     });
@@ -76,5 +87,5 @@ router.get("/analyze/:analysisId/file/:filePath", async (req, res) => {
     });
   }
 });
+
 export default router;
-///
