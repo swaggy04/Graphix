@@ -1,6 +1,7 @@
 "use client";
 
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { memo } from "react";
 
 interface FileNodeData extends Record<string, unknown> {
   label?: string;
@@ -92,7 +93,7 @@ function getTypeColor(type: string) {
 // FILE NODE
 // ==================================================
 
-export default function FileNode({ data }: NodeProps<FileNodeType>) {
+function FileNode({ data }: NodeProps<FileNodeType>) {
   const label = String(data?.label ?? "Unknown file");
 
   const selected = data?.selected === true;
@@ -263,3 +264,5 @@ export default function FileNode({ data }: NodeProps<FileNodeType>) {
     </div>
   );
 }
+
+export default memo(FileNode);
