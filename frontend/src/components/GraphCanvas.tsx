@@ -25,6 +25,7 @@ interface GraphCanvasProps {
   nodes: Node[];
   edges: Edge[];
   analysisId: string | null;
+  cycles: string[][];
   stats: GraphStats | null;
   repositoryUrl: string;
   setRepositoryUrl: React.Dispatch<React.SetStateAction<string>>;
@@ -60,15 +61,20 @@ const nodeTypes = {
   file: FileNode,
 };
 
-export default function GraphCanvas({ nodes, edges, analysisId, stats, repositoryUrl, setRepositoryUrl, onAnalyze, analyzing }: GraphCanvasProps) {
+export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, repositoryUrl, setRepositoryUrl, onAnalyze, analyzing }: GraphCanvasProps) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [showIsolated, setShowIsolated] = useState(true);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [selectedCycleIndex, setSelectedCycleIndex] = useState<number | null>(null);
 
   const { setCenter, getNode } = useReactFlow();
+
+  const activeCycleIndex = selectedCycleIndex !== null && selectedCycleIndex < cycles.length ? selectedCycleIndex : null;
+  const selectedCycle = activeCycleIndex === null ? null : cycles[activeCycleIndex];
+  const selectedCycleNodeIds = useMemo(() => new Set(selectedCycle ?? []), [selectedCycle]);
 
   /// Counts
 
@@ -162,8 +168,10 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
       const isSelected = node.id === selectedNode?.id;
       const isRelationshipNode = highlightedNodeIds.has(node.id);
       const isSearchMatch = searchedNodeIds.has(node.id);
+      const isCycleNode = selectedCycleNodeIds.has(node.id);
 
       const hasSearch = search.trim().length > 0;
+      const hasCycle = selectedCycle !== null;
 
       let opacity = 1;
 
@@ -179,29 +187,48 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
         opacity = isSearchMatch && isRelationshipNode ? 1 : 0.18;
       }
 
+      if (hasCycle) {
+        opacity = isCycleNode ? 1 : 0.14;
+      }
+
       return {
         ...node,
 
         data: {
           ...node.data,
           selected: isSelected,
-          highlighted: isRelationshipNode || isSearchMatch,
+          highlighted: isRelationshipNode || isSearchMatch || isCycleNode,
           dimmed: opacity < 1,
         },
 
         style: {
           ...node.style,
           opacity,
-          zIndex: isSelected || isRelationshipNode || isSearchMatch ? 20 : 1,
+          zIndex: isSelected || isRelationshipNode || isSearchMatch || isCycleNode ? 20 : 1,
         },
       };
     });
-  }, [visibleNodes, selectedNode, fileAnalysis, highlightedNodeIds, searchedNodeIds, search]);
+  }, [visibleNodes, selectedNode, fileAnalysis, highlightedNodeIds, searchedNodeIds, search, selectedCycle, selectedCycleNodeIds]);
 
   /// Display edges
 
   const displayEdges = useMemo(() => {
     return visibleEdges.map((edge) => {
+      if (selectedCycle) {
+        const isCycleEdge = selectedCycleNodeIds.has(edge.source) && selectedCycleNodeIds.has(edge.target);
+
+        return {
+          ...edge,
+          animated: isCycleEdge,
+          style: {
+            ...edge.style,
+            stroke: isCycleEdge ? "#f59e0b" : "#27272a",
+            strokeWidth: isCycleEdge ? 2.5 : 0.8,
+            opacity: isCycleEdge ? 1 : 0.12,
+          },
+        };
+      }
+
       if (!selectedNode || !fileAnalysis) {
         return {
           ...edge,
@@ -243,7 +270,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
         },
       };
     });
-  }, [visibleEdges, selectedNode, fileAnalysis, dependencyIds, dependentIds]);
+  }, [visibleEdges, selectedCycle, selectedCycleNodeIds, selectedNode, fileAnalysis, dependencyIds, dependentIds]);
 
   /// Select file
 
@@ -255,6 +282,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
 
       setAnalysisError(null);
       setFileAnalysis(null);
+      setSelectedCycleIndex(null);
 
       const targetNode = getNode(filePath);
 
@@ -309,6 +337,41 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
     [analysisId, getNode, setCenter],
   );
 
+  const selectCycle = useCallback(
+    (index: number) => {
+      const cycle = cycles[index];
+
+      if (!cycle) {
+        return;
+      }
+
+      setSelectedCycleIndex(index);
+      setSelectedNode(null);
+      setFileAnalysis(null);
+      setAnalysisError(null);
+
+      const cycleNodes = cycle.map((filePath) => getNode(filePath)).filter((node): node is Node => Boolean(node));
+
+      if (cycleNodes.length === 0) {
+        return;
+      }
+
+      const center = cycleNodes.reduce(
+        (result, node) => ({
+          x: result.x + node.position.x + (node.measured?.width ?? 240) / 2,
+          y: result.y + node.position.y + (node.measured?.height ?? 70) / 2,
+        }),
+        { x: 0, y: 0 },
+      );
+
+      setCenter(center.x / cycleNodes.length, center.y / cycleNodes.length, {
+        zoom: 1,
+        duration: 450,
+      });
+    },
+    [cycles, getNode, setCenter],
+  );
+
   /// Node click
 
   const handleNodeClick = useCallback(
@@ -352,6 +415,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
     setSelectedNode(null);
     setFileAnalysis(null);
     setAnalysisError(null);
+    setSelectedCycleIndex(null);
   }, []);
 
   /// Analyze
@@ -564,7 +628,43 @@ export default function GraphCanvas({ nodes, edges, analysisId, stats, repositor
                 <div className="h-5 w-px bg-zinc-800" />
 
                 <Stat label="Isolated" value={isolatedCount} />
+
+                <div className="h-5 w-px bg-zinc-800" />
+
+                <Stat label="Cycles" value={cycles.length} />
               </div>
+
+              {cycles.length > 0 && (
+                <div className="rounded-xl border border-amber-500/20 bg-[#17130b]/90 p-2 shadow-lg backdrop-blur-xl">
+                  <div className="mb-1.5 flex items-center justify-between px-1">
+                    <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-amber-400/80">Circular dependencies</span>
+                    {selectedCycle && <span className="text-[9px] text-amber-300">{selectedCycle.length} files</span>}
+                  </div>
+
+                  <select
+                    value={activeCycleIndex ?? ""}
+                    onChange={(event) => {
+                      const value = event.target.value;
+
+                      if (value === "") {
+                        setSelectedCycleIndex(null);
+                        return;
+                      }
+
+                      selectCycle(Number(value));
+                    }}
+                    className="h-8 w-full rounded-lg border border-amber-500/20 bg-[#0c0c0f] px-2 text-[10px] text-zinc-300 outline-none transition focus:border-amber-400/50"
+                    aria-label="Select circular dependency group"
+                  >
+                    <option value="">Select a cycle...</option>
+                    {cycles.map((cycle, index) => (
+                      <option key={`${index}-${cycle[0] ?? "cycle"}`} value={index}>
+                        Cycle {index + 1} · {cycle.length} files
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </Panel>
         )}

@@ -12,6 +12,7 @@ export default function Home() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
+  const [cycles, setCycles] = useState<string[][]>([]);
 
   const [stats, setStats] = useState<AnalyzeResponse["stats"] | null>(null);
 
@@ -33,6 +34,7 @@ export default function Home() {
       setNodes([]);
       setEdges([]);
       setAnalysisId(null);
+      setCycles([]);
       setStats(null);
 
       const graphViewModel = await analyzeRepository(url);
@@ -42,6 +44,7 @@ export default function Home() {
       setNodes(graph.nodes);
       setEdges(graph.edges);
       setAnalysisId(graphViewModel.analysisId);
+      setCycles(graphViewModel.cycles);
       setStats(graphViewModel.stats);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to analyze repository");
@@ -67,6 +70,7 @@ export default function Home() {
           nodes={nodes}
           edges={edges}
           analysisId={analysisId}
+          cycles={cycles}
           stats={stats}
           repositoryUrl={repositoryUrl}
           setRepositoryUrl={setRepositoryUrl}

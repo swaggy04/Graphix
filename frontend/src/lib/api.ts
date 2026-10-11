@@ -1,6 +1,8 @@
 export interface AnalyzeResponse {
   analysisId: string;
 
+  cycles: string[][];
+
   nodes: {
     id: string;
     label: string;
