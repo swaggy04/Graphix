@@ -2,6 +2,7 @@ import Graph from "graphology";
 import { extractImports } from "./ast-parser.service";
 import { createModuleResolver } from "./module-resolver.service";
 import { classifyImport } from "../utils/import-classifier";
+import { throwIfAborted } from "../utils/application-error";
 
 export interface DependencyAnalysis {
   graph: Graph;
@@ -10,6 +11,8 @@ export interface DependencyAnalysis {
     parsedFiles: number;
     failedFiles: number;
     resolvedImports: number;
+    resolvedInternalImports: number;
+    externalImports: number;
     unresolvedImports: number;
     relativeImports: number;
     packageImports: number;
@@ -19,7 +22,11 @@ export interface DependencyAnalysis {
   };
 }
 
-export async function createDependencyGraph(repositoryPath: string, files: string[]): Promise<DependencyAnalysis> {
+export async function createDependencyGraph(
+  repositoryPath: string,
+  files: string[],
+  signal?: AbortSignal,
+): Promise<DependencyAnalysis> {
   const graph = new Graph({
     type: "directed",
   });
@@ -29,6 +36,8 @@ export async function createDependencyGraph(repositoryPath: string, files: strin
   let parsedFiles = 0;
   let failedFiles = 0;
   let resolvedImports = 0;
+  let resolvedInternalImports = 0;
+  let externalImports = 0;
   let unresolvedImports = 0;
 
   let relativeImports = 0;
@@ -39,10 +48,12 @@ export async function createDependencyGraph(repositoryPath: string, files: strin
   const unresolvedRelativeImportSpecifiers = new Set<string>();
 
   for (const file of files) {
+    throwIfAborted(signal);
     graph.addNode(file);
   }
 
   for (const file of files) {
+    throwIfAborted(signal);
     let imports: string[];
 
     try {
@@ -56,6 +67,7 @@ export async function createDependencyGraph(repositoryPath: string, files: strin
     }
 
     for (const imp of imports) {
+      throwIfAborted(signal);
       const kind = classifyImport(imp);
 
       if (kind === "relative") {
@@ -73,21 +85,22 @@ export async function createDependencyGraph(repositoryPath: string, files: strin
       const resolvedFile = await resolveModule(file, imp);
 
       if (!resolvedFile) {
-        unresolvedImports++;
-        unresolvedImportSpecifiers.add(imp);
-
         if (kind === "relative") {
+          unresolvedImports++;
+          unresolvedImportSpecifiers.add(imp);
           unresolvedRelativeImportSpecifiers.add(imp);
         }
 
         continue;
       }
 
-      resolvedImports++;
-
       if (!graph.hasNode(resolvedFile)) {
+        externalImports++;
         continue;
       }
+
+      resolvedImports++;
+      resolvedInternalImports++;
 
       if (!graph.hasEdge(file, resolvedFile)) {
         graph.addEdge(file, resolvedFile);
@@ -102,6 +115,8 @@ export async function createDependencyGraph(repositoryPath: string, files: strin
       parsedFiles,
       failedFiles,
       resolvedImports,
+      resolvedInternalImports,
+      externalImports,
       unresolvedImports,
       relativeImports,
       packageImports,

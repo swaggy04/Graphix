@@ -36,38 +36,63 @@ export async function extractImports(repositoryPath: string, relativeFilePath: s
     plugins,
   });
 
-  const imports: string[] = [];
+  const imports = new Set<string>();
 
-  for (const node of ast.program.body) {
-    if (node.type === "ImportDeclaration") {
-      imports.push(node.source.value);
-      continue;
+  type AstNode = {
+    type?: string;
+    [key: string]: unknown;
+  };
+
+  const visit = (value: unknown): void => {
+    if (!value || typeof value !== "object") {
+      return;
     }
 
-    if (node.type === "ExportNamedDeclaration" && node.source) {
-      imports.push(node.source.value);
-      continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        visit(item);
+      }
+
+      return;
     }
 
-    if (node.type === "ExportAllDeclaration" && node.source) {
-      imports.push(node.source.value);
-      continue;
-    }
+    const node = value as AstNode;
 
-    if (node.type === "VariableDeclaration") {
-      for (const declaration of node.declarations) {
-        const initializer = declaration.init;
+    if (node.type === "ImportDeclaration" || node.type === "ExportNamedDeclaration" || node.type === "ExportAllDeclaration") {
+      const source = node.source as AstNode | undefined;
 
-        if (initializer?.type === "CallExpression" && initializer.callee.type === "Identifier" && initializer.callee.name === "require" && initializer.arguments.length === 1) {
-          const argument = initializer.arguments[0];
-
-          if (argument.type === "StringLiteral") {
-            imports.push(argument.value);
-          }
-        }
+      if (source?.type === "StringLiteral" && typeof source.value === "string") {
+        imports.add(source.value);
       }
     }
-  }
 
-  return imports;
+    if (node.type === "ImportExpression") {
+      const source = node.source as AstNode | undefined;
+
+      if (source?.type === "StringLiteral" && typeof source.value === "string") {
+        imports.add(source.value);
+      }
+    }
+
+    if (node.type === "CallExpression") {
+      const callee = node.callee as AstNode | undefined;
+      const argumentsList = node.arguments as unknown[] | undefined;
+      const argument = argumentsList?.length === 1 ? argumentsList[0] as AstNode | undefined : undefined;
+
+      const isRequireCall = callee?.type === "Identifier" && callee.name === "require";
+      const isDynamicImportCall = callee?.type === "Import";
+
+      if ((isRequireCall || isDynamicImportCall) && argument?.type === "StringLiteral" && typeof argument.value === "string") {
+        imports.add(argument.value);
+      }
+    }
+
+    for (const child of Object.values(node)) {
+      visit(child);
+    }
+  };
+
+  visit(ast.program);
+
+  return Array.from(imports);
 }

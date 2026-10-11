@@ -1,39 +1,13 @@
+import { builtinModules } from "node:module";
+
 export type ImportKind = "relative" | "package" | "builtin";
 
-const NODE_BUILTINS = new Set([
-  "assert",
-  "buffer",
-  "child_process",
-  "cluster",
-  "console",
-  "crypto",
-  "dgram",
-  "dns",
-  "events",
-  "fs",
-  "http",
-  "https",
-  "module",
-  "net",
-  "os",
-  "path",
-  "perf_hooks",
-  "process",
-  "punycode",
-  "querystring",
-  "readline",
-  "stream",
-  "string_decoder",
-  "timers",
-  "tls",
-  "tty",
-  "url",
-  "util",
-  "v8",
-  "vm",
-  "worker_threads",
-  "zlib",
-]);
+const NODE_BUILTINS = new Set(
+  builtinModules.flatMap((moduleName) => [
+    moduleName,
+    moduleName.startsWith("node:") ? moduleName.slice(5) : `node:${moduleName}`,
+  ]),
+);
 
 export function classifyImport(importSpecifier: string): ImportKind {
   if (importSpecifier.startsWith("./") || importSpecifier.startsWith("../")) {

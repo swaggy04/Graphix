@@ -15,5 +15,11 @@
     "sourceMap": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist","src/services/tests/resolver-alias-fixture"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/services/tests",
+    "src/tests",
+    "src/services/tests/resolver-alias-fixture"
+  ]
 }
