@@ -1,17 +1,20 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, useReactFlow, type Edge, type Node } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
 
 import FileNode from "./FileNode";
+import { analyzeFile, type FileAnalysisResponse } from "../lib/api";
 
 interface GraphStats {
   totalFiles: number;
   parsedFiles: number;
   failedFiles: number;
   resolvedImports: number;
+  resolvedInternalImports?: number;
+  externalImports?: number;
   unresolvedImports: number;
   relativeImports: number;
   packageImports: number;
@@ -33,21 +36,6 @@ interface GraphCanvasProps {
   analyzing: boolean;
 }
 
-interface FileAnalysis {
-  file: string;
-  dependencies: {
-    direct: string[];
-    transitive: string[];
-  };
-  dependents: {
-    direct: string[];
-    transitive: string[];
-  };
-  impact: {
-    affectedFiles: string[];
-  };
-}
-
 interface FileNodeData extends Record<string, unknown> {
   label?: string;
   fileType?: string;
@@ -67,13 +55,14 @@ const nodeTypes = {
 
 export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, repositoryUrl, setRepositoryUrl, onAnalyze, analyzing }: GraphCanvasProps) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-  const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
+  const [fileAnalysis, setFileAnalysis] = useState<FileAnalysisResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [showIsolated, setShowIsolated] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedCycleIndex, setSelectedCycleIndex] = useState<number | null>(null);
   const [dismissedNoCycleNoticeFor, setDismissedNoCycleNoticeFor] = useState<string | null>(null);
+  const fileRequestController = useRef<AbortController | null>(null);
 
   const { setCenter, getNode, fitView } = useReactFlow();
 
@@ -299,7 +288,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       const targetNode = getNode(filePath);
 
       if (targetNode) {
-        setSelectedNode(targetNode);
+      setSelectedNode(targetNode);
 
       } else {
         setSelectedNode({
@@ -314,18 +303,17 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         });
       }
 
+      fileRequestController.current?.abort();
+      const requestController = new AbortController();
+      fileRequestController.current = requestController;
       setLoading(true);
 
       try {
-        const encodedFilePath = encodeURIComponent(filePath);
-
-        const response = await fetch(`http://localhost:3001/api/analyze/${analysisId}/file/${encodedFilePath}`);
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch analysis for ${filePath}`);
-        }
-
-        const data: FileAnalysis = await response.json();
+        const data: FileAnalysisResponse = await analyzeFile(
+          analysisId,
+          filePath,
+          requestController.signal,
+        );
 
         setFileAnalysis(data);
 
@@ -342,11 +330,18 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
           });
         }
       } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
         console.error("File analysis failed:", error);
 
         setAnalysisError(error instanceof Error ? error.message : "Failed to analyze file");
       } finally {
-        setLoading(false);
+        if (fileRequestController.current === requestController) {
+          fileRequestController.current = null;
+          setLoading(false);
+        }
       }
     },
     [analysisId, fitView, getNode],
@@ -364,6 +359,9 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       setSelectedNode(null);
       setFileAnalysis(null);
       setAnalysisError(null);
+      fileRequestController.current?.abort();
+      fileRequestController.current = null;
+      setLoading(false);
 
       const cycleNodes = cycle.map((filePath) => getNode(filePath)).filter((node): node is Node => Boolean(node));
 
@@ -427,10 +425,13 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
   /// Pane click
 
   const handlePaneClick = useCallback(() => {
+    fileRequestController.current?.abort();
+    fileRequestController.current = null;
     setSelectedNode(null);
     setFileAnalysis(null);
     setAnalysisError(null);
     setSelectedCycleIndex(null);
+    setLoading(false);
   }, []);
 
   /// Analyze
@@ -831,7 +832,7 @@ function FileInspector({
   onFileClick,
 }: {
   selectedNode: Node;
-  fileAnalysis: FileAnalysis | null;
+  fileAnalysis: FileAnalysisResponse | null;
   loading: boolean;
   error: string | null;
   onClose: () => void;
@@ -915,7 +916,7 @@ function FileInspector({
 }
 
 function AnalysisSection({ title, direct, transitive, onFileClick }: { title: string; direct: string[]; transitive: string[]; onFileClick: (filePath: string) => void }) {
-  const total = direct.length + transitive.length;
+  const total = new Set([...direct, ...transitive]).size;
 
   return (
     <section className="border-b border-zinc-800/80 px-4 py-3.5">
