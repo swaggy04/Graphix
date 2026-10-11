@@ -182,12 +182,21 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       return selectedCycleNodeIds;
     }
 
-    if (selectedNode && fileAnalysis) {
-      return highlightedNodeIds;
+    if (selectedNode) {
+      const ids = new Set<string>([selectedNode.id, ...highlightedNodeIds]);
+
+      for (const edge of edges) {
+        if (edge.source === selectedNode.id || edge.target === selectedNode.id) {
+          ids.add(edge.source);
+          ids.add(edge.target);
+        }
+      }
+
+      return ids;
     }
 
     return null;
-  }, [focusSelection, selectedCycle, selectedCycleNodeIds, selectedNode, fileAnalysis, highlightedNodeIds]);
+  }, [focusSelection, selectedCycle, selectedCycleNodeIds, selectedNode, highlightedNodeIds, edges]);
 
   const renderedNodes = useMemo(() => {
     if (!focusedNodeIds) {
@@ -268,15 +277,16 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
 
         return {
           ...edge,
-          animated: isCycleEdge,
+          animated: true,
           style: {
             ...edge.style,
-            stroke: isCycleEdge ? "#f59e0b" : "#27272a",
+            stroke: isCycleEdge ? "#ffffff" : "#27272a",
             strokeWidth: isCycleEdge ? 2.5 : 0.8,
             opacity: isCycleEdge ? 1 : 0.12,
+            strokeDasharray: isCycleEdge ? "7 5" : "5 6",
           },
           markerEnd: isCycleEdge
-            ? { type: MarkerType.ArrowClosed, color: "#f59e0b" }
+            ? { type: MarkerType.ArrowClosed, color: "#ffffff" }
             : undefined,
         };
       }
@@ -284,12 +294,13 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       if (!selectedNode || !fileAnalysis) {
         return {
           ...edge,
-          animated: false,
+          animated: true,
           style: {
             ...edge.style,
             stroke: "#52525b",
             strokeWidth: 1,
             opacity: 0.45,
+            strokeDasharray: "5 6",
           },
           markerEnd: { type: MarkerType.ArrowClosed, color: "#52525b" },
         };
@@ -305,25 +316,27 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
           animated: true,
           style: {
             ...edge.style,
-            stroke: isDependency ? "#38bdf8" : "#a78bfa",
+            stroke: isDependency ? "#ffffff" : "#d4d4d8",
             strokeWidth: 2.6,
             opacity: 1,
+            strokeDasharray: "7 5",
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: isDependency ? "#38bdf8" : "#a78bfa",
+            color: isDependency ? "#ffffff" : "#d4d4d8",
           },
         };
       }
 
       return {
-        ...edge,
-        animated: false,
+          ...edge,
+          animated: true,
           style: {
             ...edge.style,
             stroke: "#27272a",
             strokeWidth: 0.8,
             opacity: 0.12,
+            strokeDasharray: "4 7",
           },
           markerEnd: undefined,
       };
@@ -341,6 +354,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       setAnalysisError(null);
       setFileAnalysis(null);
       setSelectedCycleIndex(null);
+      setFocusSelection(true);
 
       const targetNode = getNode(filePath);
 
@@ -413,6 +427,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       setSelectedNode(null);
       setFileAnalysis(null);
       setAnalysisError(null);
+      setFocusSelection(true);
       fileRequestController.current?.abort();
       fileRequestController.current = null;
       setLoading(false);
@@ -698,7 +713,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
             </button>
             {nodes.length > 0 && !analyzing && (
               <div className="hidden items-center gap-1.5 px-2 text-[10px] text-zinc-500 lg:flex">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span className="h-1.5 w-1.5 rounded-full bg-zinc-300" />
                 <span>{stats?.totalFiles ?? nodes.length} files analyzed</span>
               </div>
             )}
@@ -706,8 +721,8 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         </Panel>
         {analyzing && (
           <Panel position="top-center" style={{ marginTop: "78px" }}>
-            <div className="flex items-center gap-3 rounded-xl border border-blue-400/20 bg-[#10151f]/95 px-4 py-3 text-xs text-zinc-300 shadow-2xl backdrop-blur-xl">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-blue-400 shadow-[0_0_12px_rgba(96,165,250,0.9)]" />
+            <div className="flex items-center gap-3 rounded-xl border border-zinc-700/60 bg-[#151517]/95 px-4 py-3 text-xs text-zinc-300 shadow-2xl backdrop-blur-xl">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-200 shadow-[0_0_12px_rgba(255,255,255,0.35)]" />
               <div>
                 <div className="font-medium text-zinc-200">Building dependency graph</div>
                 <div className="mt-0.5 text-[10px] text-zinc-500">Cloning, parsing, and resolving repository files</div>
@@ -717,8 +732,8 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         )}
         {nodes.length > 0 && cycles.length === 0 && analysisId && dismissedNoCycleNoticeFor !== analysisId && (
           <Panel position="top-center" style={{ marginTop: "74px" }}>
-            <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-[#0d1713]/95 px-4 py-3 shadow-2xl backdrop-blur-xl">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-400/10 text-sm text-emerald-400">✓</span>
+            <div className="flex items-center gap-3 rounded-xl border border-zinc-700/60 bg-[#151517]/95 px-4 py-3 shadow-2xl backdrop-blur-xl">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-300/10 text-sm text-zinc-200">✓</span>
               <div>
                 <div className="text-xs font-medium text-zinc-200">No circular dependencies found</div>
                 <div className="mt-0.5 text-[10px] text-zinc-500">The analyzed graph contains no dependency cycles.</div>
@@ -737,11 +752,11 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         {/*/// Stats*/}
         {nodes.length > 0 && (
           <Panel position="top-left" style={{ marginTop: "76px" }}>
-            <div className="w-[232px] space-y-2">
-              <div className="px-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-zinc-600">Analysis overview</div>
+            <div className="w-[292px] max-w-[calc(100vw-32px)] space-y-2">
+              <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Analysis overview</div>
               <div
                 className="
-                  flex items-center gap-1
+                  grid grid-cols-4 gap-1
                   rounded-xl border border-zinc-800/80
                   bg-[#111114]/95 p-1
                   shadow-lg backdrop-blur-xl
@@ -749,27 +764,19 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
               >
                 <Stat label="Files" value={stats?.totalFiles ?? nodes.length} />
 
-                <div className="h-5 w-px bg-zinc-800" />
-
                 <Stat label="Connected" value={connectedCount} />
-
-                <div className="h-5 w-px bg-zinc-800" />
-
                 <Stat label="Isolated" value={isolatedCount} />
-
-                <div className="h-5 w-px bg-zinc-800" />
-
                 <Stat label="Cycles" value={cycles.length} />
               </div>
 
               {stats && (
-                <div className="flex items-center gap-2 rounded-lg border border-zinc-800/80 bg-[#111114]/80 px-3 py-2 text-[10px] text-zinc-500 shadow-lg backdrop-blur-xl">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-zinc-800/80 bg-[#111114]/80 px-3 py-2 text-[10px] text-zinc-500 shadow-lg backdrop-blur-xl">
+                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-300 shadow-[0_0_8px_rgba(255,255,255,0.5)]" />
                   <span>{stats.parsedFiles.toLocaleString()} parsed</span>
                   <span className="text-zinc-700">·</span>
                   <span>{stats.resolvedImports.toLocaleString()} imports</span>
-                  {stats.failedFiles > 0 && <span className="text-rose-400/80">{stats.failedFiles.toLocaleString()} failed</span>}
-                  {stats.unresolvedImports > 0 && <span className="text-amber-400/80">{stats.unresolvedImports.toLocaleString()} unresolved</span>}
+                  {stats.failedFiles > 0 && <span className="text-zinc-300">{stats.failedFiles.toLocaleString()} failed</span>}
+                  {stats.unresolvedImports > 0 && <span className="text-zinc-300">{stats.unresolvedImports.toLocaleString()} unresolved</span>}
                 </div>
               )}
 
@@ -784,7 +791,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
                     type="button"
                     aria-pressed={focusSelection}
                     onClick={() => setFocusSelection((current) => !current)}
-                    className={`mt-1.5 w-full rounded-lg px-2 py-1.5 text-[10px] font-medium transition ${focusSelection ? "bg-blue-400/15 text-blue-300" : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"}`}
+                    className={`mt-1.5 w-full rounded-lg px-2 py-1.5 text-[10px] font-medium transition ${focusSelection ? "bg-zinc-200/10 text-zinc-100" : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"}`}
                   >
                     {focusSelection ? "Showing selection" : "Focus selection"}
                   </button>
@@ -792,10 +799,10 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
               </div>
 
               {cycles.length > 0 ? (
-                <div className="rounded-xl border border-amber-500/20 bg-[#17130b]/90 p-2 shadow-lg backdrop-blur-xl">
+                <div className="rounded-xl border border-zinc-700/70 bg-[#151517]/95 p-2 shadow-lg backdrop-blur-xl">
                   <div className="mb-1.5 flex items-center justify-between px-1">
-                    <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-amber-400/80">Circular dependencies</span>
-                    {selectedCycle && <span className="text-[9px] text-amber-300">{selectedCycle.length} files</span>}
+                    <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-300">Circular dependencies</span>
+                    {selectedCycle && <span className="text-[9px] text-zinc-200">{selectedCycle.length} files</span>}
                   </div>
 
                   <select
@@ -810,7 +817,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
 
                       selectCycle(Number(value));
                     }}
-                    className="h-8 w-full rounded-lg border border-amber-500/20 bg-[#0c0c0f] px-2 text-[10px] text-zinc-300 outline-none transition focus:border-amber-400/50"
+                    className="h-8 w-full rounded-lg border border-zinc-700 bg-[#0c0c0f] px-2 text-[10px] text-zinc-300 outline-none transition focus:border-zinc-300/70"
                     aria-label="Select circular dependency group"
                   >
                     <option value="">Select a cycle...</option>
@@ -824,7 +831,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
                       <button
                         type="button"
                         onClick={() => setFocusSelection((current) => !current)}
-                        className={`mt-1.5 w-full rounded-lg px-2 py-1.5 text-[10px] font-medium transition ${focusSelection ? "bg-amber-400/15 text-amber-300" : "text-amber-400/70 hover:bg-amber-400/10 hover:text-amber-300"}`}
+                        className={`mt-1.5 w-full rounded-lg px-2 py-1.5 text-[10px] font-medium transition ${focusSelection ? "bg-zinc-200/10 text-zinc-100" : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200"}`}
                       >
                         {focusSelection ? "Showing cycle" : "Focus this cycle"}
                       </button>
@@ -837,9 +844,9 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         {nodes.length > 0 && (
           <Panel position="bottom-left" className="!bottom-32 !left-4">
             <div className="flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-[#111114]/90 px-3 py-2 text-[10px] text-zinc-500 shadow-lg backdrop-blur-xl">
-              <LegendDot color="bg-blue-400" label="TypeScript" />
-              <LegendDot color="bg-yellow-400" label="JavaScript" />
-              <LegendDot color="bg-amber-400" label="Cycle" />
+              <LegendDot color="bg-zinc-200" label="TypeScript" />
+              <LegendDot color="bg-zinc-400" label="JavaScript" />
+              <LegendDot color="bg-white" label="Cycle" />
             </div>
           </Panel>
         )}
@@ -876,7 +883,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="px-2.5 py-1.5">
+    <div className="min-w-0 rounded-lg px-2.5 py-1.5">
       <div className="text-[9px] font-medium uppercase tracking-wider text-zinc-600">{label}</div>
 
       <div className="mt-0.5 text-xs font-semibold tabular-nums text-zinc-300">{value.toLocaleString()}</div>

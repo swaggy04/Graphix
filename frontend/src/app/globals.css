@@ -104,6 +104,20 @@ body {
     transition: stroke 160ms ease, stroke-width 160ms ease, opacity 160ms ease;
 }
 
+.react-flow__edge.animated .react-flow__edge-path {
+    animation: grapix-edge-dash 700ms linear infinite;
+}
+
+@keyframes grapix-edge-dash {
+    from {
+        stroke-dashoffset: 0;
+    }
+
+    to {
+        stroke-dashoffset: -22;
+    }
+}
+
 @media (max-width: 900px) {
     .react-flow__panel {
         max-width: calc(100vw - 24px);

@@ -76,14 +76,14 @@ function getTypeColor(type: string) {
   switch (type) {
     case "TS":
     case "TSX":
-      return "bg-blue-400";
+      return "bg-zinc-200";
     case "JS":
     case "JSX":
-      return "bg-yellow-400";
+      return "bg-zinc-400";
     case "JSON":
-      return "bg-emerald-400";
+      return "bg-zinc-500";
     case "CSS":
-      return "bg-fuchsia-400";
+      return "bg-zinc-600";
     default:
       return "bg-zinc-500";
   }
@@ -113,13 +113,13 @@ function FileNode({ data }: NodeProps<FileNodeType>) {
   const borderState = selected
     ? "border-zinc-300 bg-[#1d1d22] shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_12px_32px_rgba(0,0,0,0.35)]"
     : cycle
-      ? "border-amber-400/80 bg-[#211a0e] shadow-[0_0_0_1px_rgba(245,158,11,0.15),0_10px_30px_rgba(245,158,11,0.08)]"
+      ? "border-white/80 bg-[#1d1d22] shadow-[0_0_0_1px_rgba(255,255,255,0.2),0_10px_30px_rgba(255,255,255,0.08)]"
       : dependency
-        ? "border-sky-400/45 bg-[#111c27]"
+        ? "border-zinc-300/70 bg-[#18181b]"
         : dependent
-          ? "border-violet-400/45 bg-[#191426]"
+          ? "border-zinc-500/70 bg-[#151517]"
           : impact
-            ? "border-rose-400/45 bg-[#24151b]"
+            ? "border-zinc-400/50 bg-[#18181b]"
             : "border-zinc-800 bg-[#151517]";
 
   return (

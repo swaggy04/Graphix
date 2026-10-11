@@ -56,10 +56,10 @@ export default function Home() {
   return (
     <main className="h-screen w-full overflow-hidden bg-[#09090b]">
       {error && (
-        <div className="absolute left-1/2 top-5 z-[100] flex max-w-md -translate-x-1/2 items-center gap-3 rounded-lg border border-red-500/20 bg-red-950/90 px-4 py-3 text-sm text-red-300 shadow-2xl backdrop-blur">
+        <div className="absolute left-1/2 top-5 z-[100] flex max-w-md -translate-x-1/2 items-center gap-3 rounded-lg border border-zinc-600/60 bg-zinc-950/95 px-4 py-3 text-sm text-zinc-200 shadow-2xl backdrop-blur">
           <span>{error}</span>
 
-          <button onClick={() => setError(null)} className="ml-2 text-red-400 transition hover:text-red-200" aria-label="Dismiss error">
+          <button onClick={() => setError(null)} className="ml-2 text-zinc-500 transition hover:text-zinc-200" aria-label="Dismiss error">
             ×
           </button>
         </div>
