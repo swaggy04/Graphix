@@ -25,7 +25,8 @@ export const runtimeConfig = {
   maxAnalysesPerWindow: positiveInteger("MAX_ANALYSES_PER_WINDOW", 10),
   maxStoredAnalyses: positiveInteger("MAX_STORED_ANALYSES", 100),
   analysisTtlMs: positiveInteger("ANALYSIS_TTL_MS", 30 * 60 * 1000),
-  maxSourceFiles: positiveInteger("MAX_SOURCE_FILES", 10_000),
+  // Keep the interactive graph responsive by enforcing a hard source-file cap.
+  maxSourceFiles: Math.min(positiveInteger("MAX_SOURCE_FILES", 300), 300),
   maxSourceSizeBytes: positiveInteger(
     "MAX_SOURCE_SIZE_BYTES",
     100 * 1024 * 1024,

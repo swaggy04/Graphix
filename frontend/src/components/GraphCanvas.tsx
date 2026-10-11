@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Background, BackgroundVariant, Controls, MarkerType, MiniMap, Panel, ReactFlow, useReactFlow, type Edge, type Node } from "@xyflow/react";
+import { graphlib, layout } from "@dagrejs/dagre";
 
 import "@xyflow/react/dist/style.css";
 
 import FileNode from "./FileNode";
 import FileInspector from "./FileInspector";
+import GraphGroupNode from "./GraphGroupNode";
 import { analyzeFile, type FileAnalysisResponse } from "../lib/api";
 
 interface GraphStats {
@@ -38,8 +40,11 @@ interface GraphCanvasProps {
 }
 
 interface FileNodeData extends Record<string, unknown> {
+  kind?: "file" | "directory";
   label?: string;
   fileType?: string;
+  fileIds?: string[];
+  count?: number;
   selected?: boolean;
   highlighted?: boolean;
   dimmed?: boolean;
@@ -52,7 +57,74 @@ interface FileNodeData extends Record<string, unknown> {
 
 const nodeTypes = {
   file: FileNode,
+  group: GraphGroupNode,
 };
+
+// The file graph remains useful for small repositories. Once it grows beyond
+// this size, the directory projection is easier to read as a tree.
+const DIRECTORY_OVERVIEW_THRESHOLD = 60;
+
+function getDirectoryGroup(filePath: string) {
+  const parts = filePath.replace(/\\/g, "/").split("/").filter(Boolean);
+
+  if (parts.length <= 1) {
+    return "root";
+  }
+
+  return parts.slice(0, Math.min(parts.length - 1, 2)).join("/");
+}
+
+function layoutFocusedNodes(nodes: Node[], edges: Edge[]) {
+  if (nodes.length <= 1) {
+    return nodes;
+  }
+
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const graph = new graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+
+  graph.setGraph({
+    rankdir: "TB",
+    nodesep: 72,
+    ranksep: 120,
+    marginx: 48,
+    marginy: 48,
+  });
+
+  for (const node of nodes) {
+    graph.setNode(node.id, {
+      width: 280,
+      height: 70,
+    });
+  }
+
+  for (const edge of edges) {
+    if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
+      graph.setEdge(edge.source, edge.target);
+    }
+  }
+
+  try {
+    layout(graph);
+  } catch {
+    return nodes;
+  }
+
+  return nodes.map((node) => {
+    const position = graph.node(node.id);
+
+    if (!position) {
+      return node;
+    }
+
+    return {
+      ...node,
+      position: {
+        x: position.x - 140,
+        y: position.y - 35,
+      },
+    };
+  });
+}
 
 function getFileName(filePath: string) {
   return filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
@@ -68,9 +140,13 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
   const [selectedCycleIndex, setSelectedCycleIndex] = useState<number | null>(null);
   const [dismissedNoCycleNoticeFor, setDismissedNoCycleNoticeFor] = useState<string | null>(null);
   const [focusSelection, setFocusSelection] = useState(false);
+  const [graphViewModeOverride, setGraphViewModeOverride] = useState<"files" | "directories" | null>(null);
+  const [focusedGroupId, setFocusedGroupId] = useState<string | null>(null);
   const fileRequestController = useRef<AbortController | null>(null);
 
   const { setCenter, getNode, fitView } = useReactFlow();
+
+  const graphViewMode = graphViewModeOverride ?? (nodes.length > DIRECTORY_OVERVIEW_THRESHOLD ? "directories" : "files");
 
   useEffect(() => {
     if (!analysisId || cycles.length > 0) {
@@ -99,9 +175,93 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
 
   const connectedCount = nodes.length - isolatedCount;
 
+  const directoryGroups = useMemo(() => {
+    const groups = new Map<string, string[]>();
+
+    for (const node of nodes) {
+      const group = getDirectoryGroup(node.id);
+      const fileIds = groups.get(group) ?? [];
+      fileIds.push(node.id);
+      groups.set(group, fileIds);
+    }
+
+    return Array.from(groups.entries()).map(([label, fileIds], index) => ({
+      id: `group:${label}`,
+      label,
+      fileIds,
+      position: {
+        x: (index % 4) * 360,
+        y: Math.floor(index / 4) * 220,
+      },
+    }));
+  }, [nodes]);
+
+  const directoryGroupByFile = useMemo(() => {
+    const result = new Map<string, string>();
+
+    for (const group of directoryGroups) {
+      for (const fileId of group.fileIds) {
+        result.set(fileId, group.id);
+      }
+    }
+
+    return result;
+  }, [directoryGroups]);
+
+  const directoryNodes = useMemo<Node[]>(() => {
+    return directoryGroups.map((group) => ({
+      id: group.id,
+      type: "group",
+      position: group.position,
+      data: {
+        kind: "directory",
+        label: group.label,
+        count: group.fileIds.length,
+        fileIds: group.fileIds,
+      },
+    }));
+  }, [directoryGroups]);
+
+  const directoryEdges = useMemo<Edge[]>(() => {
+    const seen = new Set<string>();
+    const result: Edge[] = [];
+
+    for (const edge of edges) {
+      const source = directoryGroupByFile.get(edge.source);
+      const target = directoryGroupByFile.get(edge.target);
+
+      if (!source || !target || source === target) {
+        continue;
+      }
+
+      const key = `${source}->${target}`;
+
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      result.push({
+        id: `group-edge:${key}`,
+        source,
+        target,
+      });
+    }
+
+    return result;
+  }, [directoryGroupByFile, edges]);
+
+  const positionedDirectoryNodes = useMemo(() => {
+    return layoutFocusedNodes(directoryNodes, directoryEdges);
+  }, [directoryEdges, directoryNodes]);
+
   /// Visible graph
 
   const visibleNodes = useMemo(() => {
+    if (graphViewMode === "directories") {
+      return positionedDirectoryNodes;
+    }
+
     if (showIsolated) {
       return nodes;
     }
@@ -110,19 +270,23 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       const data = node.data as FileNodeData | undefined;
       return data?.isolated !== true;
     });
-  }, [nodes, showIsolated]);
+  }, [graphViewMode, nodes, positionedDirectoryNodes, showIsolated]);
 
   const visibleNodeIds = useMemo(() => {
     return new Set(visibleNodes.map((node) => node.id));
   }, [visibleNodes]);
 
   const visibleEdges = useMemo(() => {
+    if (graphViewMode === "directories") {
+      return directoryEdges;
+    }
+
     if (showIsolated) {
       return edges;
     }
 
     return edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target));
-  }, [edges, showIsolated, visibleNodeIds]);
+  }, [directoryEdges, edges, graphViewMode, showIsolated, visibleNodeIds]);
 
   /// Search
 
@@ -178,6 +342,11 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       return null;
     }
 
+    if (focusedGroupId) {
+      const group = directoryGroups.find((entry) => entry.id === focusedGroupId);
+      return new Set(group?.fileIds ?? []);
+    }
+
     if (selectedCycle) {
       return selectedCycleNodeIds;
     }
@@ -196,7 +365,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
     }
 
     return null;
-  }, [focusSelection, selectedCycle, selectedCycleNodeIds, selectedNode, highlightedNodeIds, edges]);
+  }, [directoryGroups, focusedGroupId, focusSelection, selectedCycle, selectedCycleNodeIds, selectedNode, highlightedNodeIds, edges]);
 
   const renderedNodes = useMemo(() => {
     if (!focusedNodeIds) {
@@ -212,10 +381,18 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
     return visibleEdges.filter((edge) => renderedNodeIds.has(edge.source) && renderedNodeIds.has(edge.target));
   }, [visibleEdges, renderedNodeIds]);
 
+  const positionedNodes = useMemo(() => {
+    if (!focusSelection && !selectedCycle && !focusedGroupId) {
+      return renderedNodes;
+    }
+
+    return layoutFocusedNodes(renderedNodes, renderedEdges);
+  }, [focusSelection, focusedGroupId, renderedEdges, renderedNodes, selectedCycle]);
+
   /// Display nodes
 
   const displayNodes = useMemo(() => {
-    return renderedNodes.map((node) => {
+    return positionedNodes.map((node) => {
       const isSelected = node.id === selectedNode?.id;
       const isRelationshipNode = highlightedNodeIds.has(node.id);
       const isSearchMatch = searchedNodeIds.has(node.id);
@@ -266,7 +443,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         },
       };
     });
-  }, [renderedNodes, selectedNode, fileAnalysis, highlightedNodeIds, searchedNodeIds, search, selectedCycle, selectedCycleNodeIds, dependencyIds, dependentIds]);
+  }, [positionedNodes, selectedNode, fileAnalysis, highlightedNodeIds, searchedNodeIds, search, selectedCycle, selectedCycleNodeIds, dependencyIds, dependentIds]);
 
   /// Display edges
 
@@ -358,7 +535,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [displayNodes.length, showIsolated, fitView]);
+  }, [displayNodes.length, fitView, focusedGroupId, graphViewMode, showIsolated]);
 
   /// Select file
 
@@ -371,6 +548,8 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       setAnalysisError(null);
       setFileAnalysis(null);
       setSelectedCycleIndex(null);
+      setGraphViewModeOverride("files");
+      setFocusedGroupId(null);
       setFocusSelection(true);
 
       const targetNode = getNode(filePath);
@@ -444,12 +623,16 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       setSelectedNode(null);
       setFileAnalysis(null);
       setAnalysisError(null);
+      setGraphViewModeOverride("files");
+      setFocusedGroupId(null);
       setFocusSelection(true);
       fileRequestController.current?.abort();
       fileRequestController.current = null;
       setLoading(false);
 
-      const cycleNodes = cycle.map((filePath) => getNode(filePath)).filter((node): node is Node => Boolean(node));
+      const cycleNodes = cycle
+        .map((filePath) => nodes.find((node) => node.id === filePath))
+        .filter((node): node is Node => Boolean(node));
 
       if (cycleNodes.length === 0) {
         return;
@@ -468,13 +651,27 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         duration: 450,
       });
     },
-    [cycles, getNode, setCenter],
+    [cycles, nodes, setCenter],
   );
 
   /// Node click
 
   const handleNodeClick = useCallback(
     async (_event: React.MouseEvent, node: Node) => {
+      const data = node.data as FileNodeData;
+
+      if (data.kind === "directory") {
+        setGraphViewModeOverride("files");
+        setFocusedGroupId(node.id);
+        setShowIsolated(true);
+        setSelectedNode(null);
+        setFileAnalysis(null);
+        setSelectedCycleIndex(null);
+        setAnalysisError(null);
+        setFocusSelection(true);
+        return;
+      }
+
       await selectFile(node.id);
     },
     [selectFile],
@@ -502,7 +699,16 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       });
 
       if (firstMatch) {
-        void selectFile(firstMatch.id);
+        const data = firstMatch.data as FileNodeData;
+
+        if (data.kind === "directory") {
+          setGraphViewModeOverride("files");
+          setFocusedGroupId(firstMatch.id);
+          setShowIsolated(true);
+          setFocusSelection(true);
+        } else {
+          void selectFile(firstMatch.id);
+        }
       }
     },
     [search, visibleNodes, selectFile],
@@ -517,6 +723,8 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
     setFileAnalysis(null);
     setAnalysisError(null);
     setSelectedCycleIndex(null);
+    setFocusedGroupId(null);
+    setGraphViewModeOverride(null);
     setLoading(false);
   }, []);
 
@@ -531,6 +739,8 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
     setSelectedNode(null);
     setFileAnalysis(null);
     setSelectedCycleIndex(null);
+    setFocusedGroupId(null);
+    setGraphViewModeOverride(null);
     return onAnalyze();
   }, [analyzing, onAnalyze]);
 
@@ -618,7 +828,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 onKeyDown={handleSearchKeyDown}
-                placeholder="Search files..."
+                placeholder={graphViewMode === "directories" ? "Search directories..." : "Search files..."}
                 className="
                   h-9 min-w-0 flex-1
                   bg-transparent text-xs text-zinc-200
@@ -662,7 +872,16 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
                             type="button"
                             onClick={() => {
                               setSearch("");
-                              void selectFile(node.id);
+                              const data = node.data as FileNodeData;
+
+                              if (data.kind === "directory") {
+                                setGraphViewModeOverride("files");
+                                setFocusedGroupId(node.id);
+                                setShowIsolated(true);
+                                setFocusSelection(true);
+                              } else {
+                                void selectFile(node.id);
+                              }
                             }}
                             className="
                               block w-full border-b
@@ -798,11 +1017,52 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
               )}
 
               <div className="rounded-xl border border-zinc-800/80 bg-[#111114]/90 p-2 shadow-lg backdrop-blur-xl">
-                <div className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-600">Canvas view</div>
+                <div className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-600">Graph view</div>
                 <div className="grid grid-cols-2 gap-1">
-                  <ViewButton active={!showIsolated} onClick={() => setShowIsolated(false)}>Connected</ViewButton>
-                  <ViewButton active={showIsolated} onClick={() => setShowIsolated(true)}>All files</ViewButton>
+                  <ViewButton
+                    active={graphViewMode === "directories"}
+                    onClick={() => {
+                      setGraphViewModeOverride("directories");
+                      setFocusedGroupId(null);
+                      setSelectedNode(null);
+                      setFileAnalysis(null);
+                      setFocusSelection(false);
+                    }}
+                  >
+                    Overview
+                  </ViewButton>
+                  <ViewButton
+                    active={graphViewMode === "files"}
+                    onClick={() => {
+                      setGraphViewModeOverride("files");
+                      setFocusedGroupId(null);
+                      setFocusSelection(false);
+                    }}
+                  >
+                    Files
+                  </ViewButton>
                 </div>
+                {graphViewMode === "files" && (
+                  <div className="mt-1 grid grid-cols-2 gap-1 border-t border-zinc-800/70 pt-1">
+                    <ViewButton active={!showIsolated} onClick={() => setShowIsolated(false)}>Connected</ViewButton>
+                    <ViewButton active={showIsolated} onClick={() => setShowIsolated(true)}>All files</ViewButton>
+                  </div>
+                )}
+                {focusedGroupId && (
+                  <div className="mt-2 flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-[10px] text-zinc-500">
+                    <span className="truncate">Focused directory</span>
+                    <button
+                      type="button"
+                      className="ml-2 shrink-0 text-zinc-300 hover:text-white"
+                      onClick={() => {
+                        setFocusedGroupId(null);
+                        setFocusSelection(false);
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
                 {selectedNode && fileAnalysis && (
                   <button
                     type="button"
@@ -855,15 +1115,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
                     )}
                   </div>
               ) : null}
-            </div>
-          </Panel>
-        )}
-        {nodes.length > 0 && (
-          <Panel position="bottom-left" className="!bottom-32 !left-4">
-            <div className="flex items-center gap-3 rounded-xl border border-zinc-800/80 bg-[#111114]/90 px-3 py-2 text-[10px] text-zinc-500 shadow-lg backdrop-blur-xl">
-              <LegendDot color="bg-zinc-200" label="TypeScript" />
-              <LegendDot color="bg-zinc-400" label="JavaScript" />
-              <LegendDot color="bg-white" label="Cycle" />
             </div>
           </Panel>
         )}
@@ -924,11 +1175,3 @@ function ViewButton({ active, onClick, children }: { active: boolean; onClick: (
   );
 }
 
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5 whitespace-nowrap">
-      <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
-      {label}
-    </span>
-  );
-}
