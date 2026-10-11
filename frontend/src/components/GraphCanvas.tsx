@@ -70,7 +70,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
   const [focusSelection, setFocusSelection] = useState(false);
   const fileRequestController = useRef<AbortController | null>(null);
 
-  const { setCenter, getNode } = useReactFlow();
+  const { setCenter, getNode, fitView } = useReactFlow();
 
   useEffect(() => {
     if (!analysisId || cycles.length > 0) {
@@ -342,6 +342,23 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       };
     });
   }, [renderedEdges, selectedCycle, selectedCycleNodeIds, selectedNode, fileAnalysis, dependencyIds, dependentIds]);
+
+  useEffect(() => {
+    if (displayNodes.length === 0) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      void fitView({
+        padding: 0.18,
+        maxZoom: 1.05,
+        minZoom: 0.08,
+        duration: 300,
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [displayNodes.length, showIsolated, fitView]);
 
   /// Select file
 
