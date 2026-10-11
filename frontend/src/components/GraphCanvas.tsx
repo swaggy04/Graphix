@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
-import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, useReactFlow, type Edge, type Node } from "@xyflow/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Background, BackgroundVariant, Controls, MarkerType, MiniMap, Panel, ReactFlow, useReactFlow, type Edge, type Node } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
 
@@ -67,9 +67,22 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
   const [search, setSearch] = useState("");
   const [selectedCycleIndex, setSelectedCycleIndex] = useState<number | null>(null);
   const [dismissedNoCycleNoticeFor, setDismissedNoCycleNoticeFor] = useState<string | null>(null);
+  const [focusSelection, setFocusSelection] = useState(false);
   const fileRequestController = useRef<AbortController | null>(null);
 
-  const { setCenter, getNode, fitView } = useReactFlow();
+  const { setCenter, getNode } = useReactFlow();
+
+  useEffect(() => {
+    if (!analysisId || cycles.length > 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setDismissedNoCycleNoticeFor(analysisId);
+    }, 4500);
+
+    return () => window.clearTimeout(timer);
+  }, [analysisId, cycles.length]);
 
   const activeCycleIndex = selectedCycleIndex !== null && selectedCycleIndex < cycles.length ? selectedCycleIndex : null;
   const selectedCycle = activeCycleIndex === null ? null : cycles[activeCycleIndex];
@@ -160,10 +173,40 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
     return new Set([selectedNode.id, ...fileAnalysis.dependencies.direct, ...fileAnalysis.dependents.direct]);
   }, [selectedNode, fileAnalysis]);
 
+  const focusedNodeIds = useMemo(() => {
+    if (!focusSelection) {
+      return null;
+    }
+
+    if (selectedCycle) {
+      return selectedCycleNodeIds;
+    }
+
+    if (selectedNode && fileAnalysis) {
+      return highlightedNodeIds;
+    }
+
+    return null;
+  }, [focusSelection, selectedCycle, selectedCycleNodeIds, selectedNode, fileAnalysis, highlightedNodeIds]);
+
+  const renderedNodes = useMemo(() => {
+    if (!focusedNodeIds) {
+      return visibleNodes;
+    }
+
+    return visibleNodes.filter((node) => focusedNodeIds.has(node.id));
+  }, [visibleNodes, focusedNodeIds]);
+
+  const renderedNodeIds = useMemo(() => new Set(renderedNodes.map((node) => node.id)), [renderedNodes]);
+
+  const renderedEdges = useMemo(() => {
+    return visibleEdges.filter((edge) => renderedNodeIds.has(edge.source) && renderedNodeIds.has(edge.target));
+  }, [visibleEdges, renderedNodeIds]);
+
   /// Display nodes
 
   const displayNodes = useMemo(() => {
-    return visibleNodes.map((node) => {
+    return renderedNodes.map((node) => {
       const isSelected = node.id === selectedNode?.id;
       const isRelationshipNode = highlightedNodeIds.has(node.id);
       const isSearchMatch = searchedNodeIds.has(node.id);
@@ -214,12 +257,12 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         },
       };
     });
-  }, [visibleNodes, selectedNode, fileAnalysis, highlightedNodeIds, searchedNodeIds, search, selectedCycle, selectedCycleNodeIds, dependencyIds, dependentIds]);
+  }, [renderedNodes, selectedNode, fileAnalysis, highlightedNodeIds, searchedNodeIds, search, selectedCycle, selectedCycleNodeIds, dependencyIds, dependentIds]);
 
   /// Display edges
 
   const displayEdges = useMemo(() => {
-    return visibleEdges.map((edge) => {
+    return renderedEdges.map((edge) => {
       if (selectedCycle) {
         const isCycleEdge = selectedCycleNodeIds.has(edge.source) && selectedCycleNodeIds.has(edge.target);
 
@@ -232,6 +275,9 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
             strokeWidth: isCycleEdge ? 2.5 : 0.8,
             opacity: isCycleEdge ? 1 : 0.12,
           },
+          markerEnd: isCycleEdge
+            ? { type: MarkerType.ArrowClosed, color: "#f59e0b" }
+            : undefined,
         };
       }
 
@@ -245,6 +291,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
             strokeWidth: 1,
             opacity: 0.45,
           },
+          markerEnd: { type: MarkerType.ArrowClosed, color: "#52525b" },
         };
       }
 
@@ -258,9 +305,13 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
           animated: true,
           style: {
             ...edge.style,
-            stroke: "#71717a",
-            strokeWidth: 1.5,
-            opacity: 0.9,
+            stroke: isDependency ? "#38bdf8" : "#a78bfa",
+            strokeWidth: 2.6,
+            opacity: 1,
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: isDependency ? "#38bdf8" : "#a78bfa",
           },
         };
       }
@@ -268,15 +319,16 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       return {
         ...edge,
         animated: false,
-        style: {
-          ...edge.style,
-          stroke: "#27272a",
-          strokeWidth: 0.8,
-          opacity: 0.06,
-        },
+          style: {
+            ...edge.style,
+            stroke: "#27272a",
+            strokeWidth: 0.8,
+            opacity: 0.12,
+          },
+          markerEnd: undefined,
       };
     });
-  }, [visibleEdges, selectedCycle, selectedCycleNodeIds, selectedNode, fileAnalysis, dependencyIds, dependentIds]);
+  }, [renderedEdges, selectedCycle, selectedCycleNodeIds, selectedNode, fileAnalysis, dependencyIds, dependentIds]);
 
   /// Select file
 
@@ -293,7 +345,16 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       const targetNode = getNode(filePath);
 
       if (targetNode) {
-      setSelectedNode(targetNode);
+        setSelectedNode(targetNode);
+
+        setCenter(
+          targetNode.position.x + (targetNode.measured?.width ?? 280) / 2,
+          targetNode.position.y + (targetNode.measured?.height ?? 70) / 2,
+          {
+            zoom: 1.25,
+            duration: 450,
+          },
+        );
 
       } else {
         setSelectedNode({
@@ -322,18 +383,6 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
 
         setFileAnalysis(data);
 
-        const focusNodes = [filePath, ...data.dependencies.direct, ...data.dependents.direct]
-          .map((path) => getNode(path))
-          .filter((node): node is Node => Boolean(node));
-
-        if (focusNodes.length > 0) {
-          await fitView({
-            nodes: focusNodes,
-            padding: 0.28,
-            duration: 450,
-            maxZoom: 1.05,
-          });
-        }
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
@@ -349,7 +398,7 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         }
       }
     },
-    [analysisId, fitView, getNode],
+    [analysisId, getNode, setCenter],
   );
 
   const selectCycle = useCallback(
@@ -446,6 +495,10 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
       return;
     }
 
+    setFocusSelection(false);
+    setSelectedNode(null);
+    setFileAnalysis(null);
+    setSelectedCycleIndex(null);
     return onAnalyze();
   }, [analyzing, onAnalyze]);
 
@@ -643,8 +696,25 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
             >
               {analyzing ? "Analyzing..." : "Analyze"}
             </button>
+            {nodes.length > 0 && !analyzing && (
+              <div className="hidden items-center gap-1.5 px-2 text-[10px] text-zinc-500 lg:flex">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span>{stats?.totalFiles ?? nodes.length} files analyzed</span>
+              </div>
+            )}
           </div>
         </Panel>
+        {analyzing && (
+          <Panel position="top-center" style={{ marginTop: "78px" }}>
+            <div className="flex items-center gap-3 rounded-xl border border-blue-400/20 bg-[#10151f]/95 px-4 py-3 text-xs text-zinc-300 shadow-2xl backdrop-blur-xl">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-blue-400 shadow-[0_0_12px_rgba(96,165,250,0.9)]" />
+              <div>
+                <div className="font-medium text-zinc-200">Building dependency graph</div>
+                <div className="mt-0.5 text-[10px] text-zinc-500">Cloning, parsing, and resolving repository files</div>
+              </div>
+            </div>
+          </Panel>
+        )}
         {nodes.length > 0 && cycles.length === 0 && analysisId && dismissedNoCycleNoticeFor !== analysisId && (
           <Panel position="top-center" style={{ marginTop: "74px" }}>
             <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-[#0d1713]/95 px-4 py-3 shadow-2xl backdrop-blur-xl">
@@ -666,8 +736,9 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
         )}
         {/*/// Stats*/}
         {nodes.length > 0 && (
-          <Panel position="top-left">
-            <div className="space-y-2">
+          <Panel position="top-left" style={{ marginTop: "76px" }}>
+            <div className="w-[232px] space-y-2">
+              <div className="px-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-zinc-600">Analysis overview</div>
               <div
                 className="
                   flex items-center gap-1
@@ -698,8 +769,27 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
                   <span className="text-zinc-700">·</span>
                   <span>{stats.resolvedImports.toLocaleString()} imports</span>
                   {stats.failedFiles > 0 && <span className="text-rose-400/80">{stats.failedFiles.toLocaleString()} failed</span>}
+                  {stats.unresolvedImports > 0 && <span className="text-amber-400/80">{stats.unresolvedImports.toLocaleString()} unresolved</span>}
                 </div>
               )}
+
+              <div className="rounded-xl border border-zinc-800/80 bg-[#111114]/90 p-2 shadow-lg backdrop-blur-xl">
+                <div className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-600">Canvas view</div>
+                <div className="grid grid-cols-2 gap-1">
+                  <ViewButton active={!showIsolated} onClick={() => setShowIsolated(false)}>Connected</ViewButton>
+                  <ViewButton active={showIsolated} onClick={() => setShowIsolated(true)}>All files</ViewButton>
+                </div>
+                {selectedNode && fileAnalysis && (
+                  <button
+                    type="button"
+                    aria-pressed={focusSelection}
+                    onClick={() => setFocusSelection((current) => !current)}
+                    className={`mt-1.5 w-full rounded-lg px-2 py-1.5 text-[10px] font-medium transition ${focusSelection ? "bg-blue-400/15 text-blue-300" : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"}`}
+                  >
+                    {focusSelection ? "Showing selection" : "Focus selection"}
+                  </button>
+                )}
+              </div>
 
               {cycles.length > 0 ? (
                 <div className="rounded-xl border border-amber-500/20 bg-[#17130b]/90 p-2 shadow-lg backdrop-blur-xl">
@@ -729,31 +819,18 @@ export default function GraphCanvas({ nodes, edges, analysisId, cycles, stats, r
                         Cycle {index + 1} · {cycle.length} files
                       </option>
                     ))}
-                  </select>
-                </div>
+                    </select>
+                    {selectedCycle && (
+                      <button
+                        type="button"
+                        onClick={() => setFocusSelection((current) => !current)}
+                        className={`mt-1.5 w-full rounded-lg px-2 py-1.5 text-[10px] font-medium transition ${focusSelection ? "bg-amber-400/15 text-amber-300" : "text-amber-400/70 hover:bg-amber-400/10 hover:text-amber-300"}`}
+                      >
+                        {focusSelection ? "Showing cycle" : "Focus this cycle"}
+                      </button>
+                    )}
+                  </div>
               ) : null}
-            </div>
-          </Panel>
-        )}
-        {/*/// View switcher//*/}
-        {nodes.length > 0 && isolatedCount > 0 && !selectedNode && (
-          <Panel position="bottom-center">
-            <div
-              className="
-                  flex items-center gap-1
-                  rounded-xl border border-zinc-800/80
-                  bg-[#111114]/95 p-1 shadow-xl
-                "
-            >
-              <span className="px-2 text-[10px] uppercase tracking-wider text-zinc-600">View</span>
-
-              <ViewButton active={!showIsolated} onClick={() => setShowIsolated(false)}>
-                Connected
-              </ViewButton>
-
-              <ViewButton active={showIsolated} onClick={() => setShowIsolated(true)}>
-                All files
-              </ViewButton>
             </div>
           </Panel>
         )}

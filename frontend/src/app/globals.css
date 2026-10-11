@@ -99,3 +99,27 @@ body {
     border-radius: 999px;
     background: #3f3f46;
 }
+
+.react-flow__edge-path {
+    transition: stroke 160ms ease, stroke-width 160ms ease, opacity 160ms ease;
+}
+
+@media (max-width: 900px) {
+    .react-flow__panel {
+        max-width: calc(100vw - 24px);
+    }
+
+    .react-flow__panel > div {
+        max-width: calc(100vw - 24px);
+    }
+}
+
+@media (max-width: 640px) {
+    .react-flow__panel[style*="margin-top"] {
+        display: none;
+    }
+
+    .react-flow__minimap {
+        display: none;
+    }
+}
