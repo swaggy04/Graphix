@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "test": "tsx --test src/tests/analysis-pipeline.test.ts",
+    "test": "tsx --test src/tests/analysis-pipeline.test.ts src/tests/module-resolver.test.ts",
     "dev": "tsx watch src/server.ts"
   },
   "keywords": [],
