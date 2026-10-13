@@ -962,7 +962,7 @@ export default function GraphCanvas({
                   text-xs font-semibold text-zinc-200
                 "
               >
-                G
+                D
               </div>
               <span className="text-sm font-semibold text-zinc-200">
                 Deptrace{" "}
