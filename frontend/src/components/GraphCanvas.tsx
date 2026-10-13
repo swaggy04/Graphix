@@ -909,6 +909,10 @@ export default function GraphCanvas({
               Enter a public GitHub repository above to explore files,
               dependencies, circular groups, and change impact.
             </p>
+            <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-xs text-zinc-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-zinc-500" />
+              Supports repositories up to 300 source files
+            </div>
           </div>
         </div>
       )}
@@ -1101,7 +1105,7 @@ export default function GraphCanvas({
                     void handleAnalyze();
                   }
                 }}
-                placeholder="github.com/owner/repository"
+                placeholder="github.com/owner/repository (max 300 files)"
                 disabled={analyzing}
                 className="
                   h-9 min-w-0 flex-1 bg-transparent text-xs text-zinc-200
