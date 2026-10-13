@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Grapix",
+  title: "Deptrace",
   description: "Explore and analyze codebase dependencies.",
 };
 
