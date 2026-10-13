@@ -22,50 +22,59 @@ app.get("/health", (_req, res) => {
 });
 
 // Return consistent JSON for parser, rate-limit, and route errors.
-app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  if (isApplicationError(error)) {
-    res.status(error.statusCode).json({
+app.use(
+  (
+    error: unknown,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    if (isApplicationError(error)) {
+      res.status(error.statusCode).json({
+        error: {
+          code: error.code,
+          message: error.message,
+        },
+      });
+      return;
+    }
+
+    const parserError = error as { type?: string };
+
+    if (parserError.type === "entity.too.large") {
+      res.status(413).json({
+        error: {
+          code: "REQUEST_BODY_TOO_LARGE",
+          message: "Request body is too large.",
+        },
+      });
+      return;
+    }
+
+    if (parserError.type === "entity.parse.failed") {
+      res.status(400).json({
+        error: {
+          code: "INVALID_JSON",
+          message: "Request body must contain valid JSON.",
+        },
+      });
+      return;
+    }
+
+    console.error("Unhandled request error:", error);
+    res.status(500).json({
       error: {
-        code: error.code,
-        message: error.message,
+        code: "INTERNAL_SERVER_ERROR",
+        message: "An unexpected server error occurred.",
       },
     });
-    return;
-  }
-
-  const parserError = error as { type?: string };
-
-  if (parserError.type === "entity.too.large") {
-    res.status(413).json({
-      error: {
-        code: "REQUEST_BODY_TOO_LARGE",
-        message: "Request body is too large.",
-      },
-    });
-    return;
-  }
-
-  if (parserError.type === "entity.parse.failed") {
-    res.status(400).json({
-      error: {
-        code: "INVALID_JSON",
-        message: "Request body must contain valid JSON.",
-      },
-    });
-    return;
-  }
-
-  console.error("Unhandled request error:", error);
-  res.status(500).json({
-    error: {
-      code: "INTERNAL_SERVER_ERROR",
-      message: "An unexpected server error occurred.",
-    },
-  });
-});
+  },
+);
 
 const server = app.listen(runtimeConfig.port, () => {
-  console.log(`Grapix backend running on http://localhost:${runtimeConfig.port}`);
+  console.log(
+    `Deptrace backend running on http://localhost:${runtimeConfig.port}`,
+  );
 });
 
 server.requestTimeout = runtimeConfig.analysisTimeoutMs + 10_000;
@@ -87,4 +96,3 @@ const shutdown = (signal: string) => {
 
 process.once("SIGINT", () => shutdown("SIGINT"));
 process.once("SIGTERM", () => shutdown("SIGTERM"));
-//https://github.com/swaggy04/gitty.git
