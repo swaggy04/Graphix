@@ -897,7 +897,7 @@ export default function GraphCanvas({
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-6">
           <div className="max-w-md text-center">
             <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-zinc-800 bg-[#111114] text-lg font-semibold text-zinc-300 shadow-2xl">
-              G
+              D
             </div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-600">
               Repository intelligence
