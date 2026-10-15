@@ -99,19 +99,155 @@ Deptrace is organized as a decoupled monorepo:
 - **Backend (`/backend`):** Express 5 REST API written in TypeScript, managing repository lifecycle, AST parsing, module resolution, and in-memory graph operations with `graphology`.
 
 ```mermaid
-flowchart LR
-    A[Browser / User] -->|POST /api/analyze| B[Next.js Frontend]
-    B -->|Proxy / Direct API Call| C[Express Backend]
-    C -->|git clone --depth 1| D[Ephemeral Temp Dir]
-    D -->|Fast-Glob| E[File Discovery]
-    E -->|Babel AST Parser| F[Import Extraction]
-    F -->|enhanced-resolve + tsconfig-paths| G[Module Resolver]
-    G -->|Graphology| H[Dependency Graph]
-    H -->|graphology-components| I[Cycle Detection]
-    H -->|In-Memory Store with TTL| J[Analysis Session Store]
-    C -->|nodes, edges, cycles, stats| B
-    A -->|GET /api/analyze/:id/file/:path| C
-    C -->|BFS Traversal on Graphology| A
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#ffffff", "primaryTextColor": "#000000", "primaryBorderColor": "#000000", "lineColor": "#000000", "secondaryColor": "#ffffff", "tertiaryColor": "#ffffff", "clusterBkg": "#ffffff", "clusterBorder": "#000000", "edgeLabelBackground": "#ffffff", "fontFamily": "Arial"}}}%%
+flowchart TB
+    USER["Developer"]
+
+    subgraph FRONTEND["Frontend — Next.js 16 / React 19"]
+        direction TB
+        PAGE["page.tsx<br/>Repository URL · analysis state"]
+        API_CLIENT["lib/api.ts<br/>REST request wrappers"]
+        ADAPTER["graph-adapter.ts<br/>Backend graph → React Flow model"]
+        ELK["ELK layout<br/>Connected components · layered layout"]
+        DAGRE["Dagre layout<br/>Focused subgraphs · cycle focus"]
+        CANVAS["GraphCanvas.tsx<br/>Interactive graph canvas"]
+        FILE_NODE["FileNode"]
+        GROUP_NODE["GraphGroupNode"]
+        INSPECTOR["FileInspector<br/>Dependencies · dependents · impact"]
+
+        PAGE --> API_CLIENT
+        PAGE --> ADAPTER
+        ADAPTER --> ELK
+        ADAPTER --> DAGRE
+        ELK --> CANVAS
+        DAGRE --> CANVAS
+        CANVAS --> FILE_NODE
+        CANVAS --> GROUP_NODE
+        CANVAS --> INSPECTOR
+    end
+
+    subgraph BACKEND["Backend — Express 5 / TypeScript"]
+        direction TB
+        SERVER["server.ts<br/>CORS · JSON limit · error handling"]
+        ROUTE["analytic-routes.ts<br/>POST /api/analyze<br/>GET /api/analyze/:analysisId/file/:filePath"]
+        RATE["Sliding-window IP rate limiter<br/>Default 10 requests / 60 seconds"]
+        LIMITER["Analysis concurrency limiter<br/>Default 2 simultaneous analyses"]
+        CONFIG["runtime-config.ts<br/>Validated runtime settings"]
+
+        SERVER --> ROUTE
+        ROUTE --> RATE
+        RATE --> LIMITER
+        CONFIG -.-> RATE
+        CONFIG -.-> LIMITER
+    end
+
+    subgraph REPO["Repository acquisition and source discovery"]
+        direction TB
+        URL_VALIDATION["github-url.ts<br/>HTTPS · github.com · owner/repo"]
+        CLONE["repository.service.ts<br/>git clone --depth 1"]
+        GITHUB["Public GitHub repository"]
+        TEMP["OS temporary directory<br/>Ephemeral clone"]
+        CLONE_LIMIT["Clone disk limit<br/>Default 500 MB"]
+        DISCOVERY["file-discovery.service.ts<br/>fast-glob"]
+        FILE_FILTER["Source extensions<br/>.ts · .tsx · .js · .jsx"]
+        SOURCE_LIMITS["Source limits<br/>At most 300 files<br/>At most 100 MB cumulative source"]
+
+        URL_VALIDATION --> CLONE
+        CLONE --> GITHUB
+        CLONE --> TEMP
+        TEMP --> CLONE_LIMIT
+        CLONE_LIMIT --> DISCOVERY
+        DISCOVERY --> FILE_FILTER
+        FILE_FILTER --> SOURCE_LIMITS
+    end
+
+    subgraph PIPELINE["Static analysis and dependency graph"]
+        direction TB
+        PARSER["ast-parser.service.ts<br/>@babel/parser"]
+        IMPORTS["AST import extraction<br/>Static imports · re-exports<br/>Dynamic imports · require()"]
+        CLASSIFIER["import-classifier.ts<br/>Relative · builtin · package"]
+        RESOLVER["module-resolver.service.ts<br/>enhanced-resolve · tsconfig-paths<br/>Extension normalization · path boundary"]
+        ANALYZER["dependency-analyzer.service.ts<br/>Graphology directed graph"]
+        CYCLES["cycle-detection.service.ts<br/>Strongly connected components<br/>Self-loop detection"]
+        VIEW_MODEL["graph-view-model.service.ts<br/>JSON nodes and edges"]
+        STATS["Analysis statistics<br/>Parsed · failed · resolved · unresolved"]
+
+        PARSER --> IMPORTS
+        IMPORTS --> CLASSIFIER
+        CLASSIFIER --> RESOLVER
+        RESOLVER --> ANALYZER
+        ANALYZER --> CYCLES
+        ANALYZER --> VIEW_MODEL
+        CYCLES --> VIEW_MODEL
+        ANALYZER --> STATS
+    end
+
+    subgraph STORAGE["In-memory analysis sessions"]
+        direction TB
+        STORE["analysis-store.service.ts"]
+        GRAPH["Graphology graph keyed by analysisId"]
+        TTL["Automatic TTL expiration<br/>Default 30 minutes"]
+        EVICTION["Capacity pruning<br/>Default maximum 100 analyses"]
+
+        STORE --> GRAPH
+        STORE --> TTL
+        STORE --> EVICTION
+    end
+
+    subgraph FILE_INSPECTION["File inspection and change impact"]
+        direction TB
+        FILE_ROUTE["File inspection route"]
+        FILE_SERVICE["file-analysis.service.ts"]
+        QUERY["dependency-query.service.ts<br/>Direct and transitive dependencies<br/>Direct and transitive dependents"]
+        IMPACT["impact-analysis.service.ts<br/>Transitive dependent blast radius"]
+        FILE_RESPONSE["File inspection response"]
+
+        FILE_ROUTE --> FILE_SERVICE
+        FILE_SERVICE --> QUERY
+        FILE_SERVICE --> IMPACT
+        QUERY --> FILE_RESPONSE
+        IMPACT --> FILE_RESPONSE
+    end
+
+    subgraph LIFECYCLE["Cancellation, errors and cleanup"]
+        direction TB
+        ABORT["AbortController<br/>Client disconnect · analysis timeout"]
+        CLEANUP["Route finally block<br/>Best-effort clone cleanup<br/>Release concurrency slot"]
+        ERRORS["HTTP error responses<br/>Invalid URL · rate limit · capacity<br/>Clone/source limits · timeout"]
+    end
+
+    USER --> PAGE
+    API_CLIENT -->|"POST /api/analyze"| SERVER
+    ROUTE --> URL_VALIDATION
+
+    SOURCE_LIMITS --> PARSER
+    TEMP -.->|"Enumerate and read source files"| DISCOVERY
+    TEMP -.->|"Read source code"| PARSER
+
+    ANALYZER --> STORE
+    VIEW_MODEL -->|"nodes · edges · cycles · analysisId · stats"| API_CLIENT
+    API_CLIENT --> PAGE
+
+    INSPECTOR -->|"Selected file request"| API_CLIENT
+    API_CLIENT -->|"GET file inspection"| FILE_ROUTE
+    GRAPH --> FILE_SERVICE
+    FILE_RESPONSE --> INSPECTOR
+
+    ROUTE -.-> ABORT
+    ABORT -.-> CLONE
+    ABORT -.-> DISCOVERY
+    ROUTE -.-> CLEANUP
+    CLONE -.-> CLEANUP
+    CLEANUP -.-> TEMP
+
+    URL_VALIDATION -.->|"Invalid URL"| ERRORS
+    RATE -.->|"Rate limit exceeded"| ERRORS
+    LIMITER -.->|"Capacity exceeded"| ERRORS
+    CLONE_LIMIT -.->|"Clone too large"| ERRORS
+    SOURCE_LIMITS -.->|"Source limit exceeded"| ERRORS
+
+    classDef mono fill:#ffffff,stroke:#000000,color:#000000
+    class USER,PAGE,API_CLIENT,ADAPTER,ELK,DAGRE,CANVAS,FILE_NODE,GROUP_NODE,INSPECTOR,SERVER,ROUTE,RATE,LIMITER,CONFIG,URL_VALIDATION,CLONE,GITHUB,TEMP,CLONE_LIMIT,DISCOVERY,FILE_FILTER,SOURCE_LIMITS,PARSER,IMPORTS,CLASSIFIER,RESOLVER,ANALYZER,CYCLES,VIEW_MODEL,STATS,STORE,GRAPH,TTL,EVICTION,FILE_ROUTE,FILE_SERVICE,QUERY,IMPACT,FILE_RESPONSE,ABORT,CLEANUP,ERRORS mono
 ```
 
 For full architectural details, component breakdowns, and sequence flows, see [Architecture Documentation](docs/architecture.md).
@@ -359,4 +495,4 @@ Deptrace is intentionally architected with strict safety boundaries because publ
    cd ../frontend && npm test && npm run lint && npm run build
    ```
 3. Commit focused changes with conventional commit messages (e.g., `feat: ...`, `fix: ...`, `docs: ...`).
-4. Submit a Pull Request describing the problem, changes made, and verification steps.
+4. Submit a Pull Request describing the problem, changes made, and verification st
